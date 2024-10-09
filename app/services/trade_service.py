@@ -1,6 +1,6 @@
 # services/user_service.py
 from bson import ObjectId
-from app.models.trade import User, UserCreate
+from app.models.trade import User, UserCreate, Trade
 from app.core.database import get_database
 
 # Helper to convert BSON ObjectId to string and format the user data
@@ -40,3 +40,24 @@ async def delete_user(user_id: str):
     db = await get_database()
     result = await db["users"].delete_one({"_id": ObjectId(user_id)})
     return result.deleted_count
+
+
+def trade_helper(trade) -> Trade:
+    return Trade(
+        id=str(trade["_id"]),  # Assuming MongoDB ObjectId
+        symbol=trade["symbol"],
+        volume_change=trade["volume_change"],
+        close=trade["close"],
+        r1=trade["r1"],
+        s1=trade["s1"],
+        r2=trade["r2"],
+        s2=trade["s2"],
+        r3=trade["r3"],
+        s3=trade["s3"]
+    )
+
+async def create_trade(trade_data: UserCreate):
+    db = await get_database()
+    new_trade = await db["trades"].insert_one(trade_data.dict())
+    trade = await db["trades"].find_one({"_id": new_trade.inserted_id})
+    return user_helper(trade)
