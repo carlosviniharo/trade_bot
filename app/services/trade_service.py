@@ -67,5 +67,5 @@ async def create_trade(trade_data: TradeCreate):
 
 async def list_trades():
     db = await get_database()
-    trades = await db["trades"].find().to_list(2)
+    trades = await db["trades"].find().to_list(1000)
     return [trade_helper(trade) for trade in trades]

@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
-
+from app.core.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import trade_router
 from app.core.database import Database  # Assuming Database class is here
 
@@ -9,7 +9,9 @@ from app.core.database import Database  # Assuming Database class is here
 async def lifespan(app: FastAPI):
     # Startup logic: Connect to the database
     await Database.connect()
+    start_scheduler()
     yield  # Hand over control to FastAPI routes
+    shutdown_scheduler()
     # Shutdown logic: Disconnect from the database
     await Database.disconnect()
 
