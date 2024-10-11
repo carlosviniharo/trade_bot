@@ -1,6 +1,6 @@
 # services/user_service.py
 from bson import ObjectId
-from app.models.trade import User, UserCreate, Trade
+from app.models.trade import User, UserCreate, Trade, TradeCreate
 from app.core.database import get_database
 
 # Helper to convert BSON ObjectId to string and format the user data
@@ -53,11 +53,19 @@ def trade_helper(trade) -> Trade:
         r2=trade["r2"],
         s2=trade["s2"],
         r3=trade["r3"],
-        s3=trade["s3"]
+        s3=trade["s3"],
+        # date_of_creation=trade["date_of_creation"],
+        # date_of_modification=trade["date_of_modification"]
     )
 
-async def create_trade(trade_data: UserCreate):
+async def create_trade(trade_data: TradeCreate):
     db = await get_database()
-    new_trade = await db["trades"].insert_one(trade_data.dict())
+    new_trade = await db["trades"].insert_one(trade_data.model_dump())
     trade = await db["trades"].find_one({"_id": new_trade.inserted_id})
-    return user_helper(trade)
+    return trade_helper(trade)
+
+
+async def list_trades():
+    db = await get_database()
+    trades = await db["trades"].find().to_list(2)
+    return [trade_helper(trade) for trade in trades]

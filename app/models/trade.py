@@ -1,5 +1,7 @@
 # models/user.py
-from pydantic import BaseModel
+from datetime import datetime, timezone
+from pydantic import BaseModel, Field
+from typing import Optional
 
 class UserBase(BaseModel):
     name: str
@@ -22,8 +24,13 @@ class TradeData(BaseModel):
     s2: float
     r3: float
     s3: float
+    date_of_creation: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    date_of_modification: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class CreateTrade(TradeData):
+    def update_modification_date(self):
+        self.date_of_modification = datetime.now(timezone.utc)
+
+class TradeCreate(TradeData):
     pass
 
 class Trade(TradeData):

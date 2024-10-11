@@ -1,7 +1,14 @@
 # routers/user_router.py
 from fastapi import APIRouter, HTTPException
-from app.models.trade import User, UserCreate
-from app.services.trade_service import create_user, get_user, list_users, update_user, delete_user
+from app.models.trade import User, UserCreate, TradeData, TradeCreate, Trade
+from app.services.trade_service import (
+    create_user,
+    get_user,
+    list_users,
+    update_user,
+    delete_user,
+    create_trade, list_trades
+)
 
 router = APIRouter()
 
@@ -33,3 +40,11 @@ async def delete_user_by_id(user_id: str):
     if deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted"}
+
+@router.post("/trades/", response_model=Trade)
+async def create_new_trade(trade: TradeCreate):
+    return await create_trade(trade)
+
+@router.get("/trades/", response_model=list[Trade])
+async def get_all_trades():
+    return await list_trades()
