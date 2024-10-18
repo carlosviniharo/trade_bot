@@ -4,7 +4,8 @@ import ccxt.async_support as ccxt_async
 import pandas as pd
 import talib as ta
 from datetime import datetime, timedelta, timezone
-import pytz
+
+ATR_PERIOD = 14
 
 # Add this code block right after the imports
 if sys.platform == 'win32':
@@ -35,10 +36,12 @@ async def process_symbol(symbol, since):
     df = await get_historical_data(symbol, since)
     if df is not None and len(df) > 1:
         df['symbol'] = symbol
-        df['Price Change'] = ta.ROC(df['close'].values, timeperiod=1)
+        df['price_change'] = ta.ROC(df['close'].values, timeperiod=1)
         df['volume_change'] = ta.ROC(df['volume'].values, timeperiod=1).round(2)
+        df['ATR'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=ATR_PERIOD)
+        df['precentageATR'] = (df['ATR'] / df['close']) * 100
 
-        if abs(df['Price Change'].iloc[-1]) >= 1:  # 1% price change threshold
+        if abs(df['price_change'].iloc[-1]) >= max(df['precentageATR'].iloc[-1], 1.5):
             df['ema_9'] = ta.EMA(df['close'].values, timeperiod=9)
             return df.iloc[[-1]]
     return None

@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 import time
 from app.core.database import get_database
 from app.models.trade import TradeCreate
@@ -14,25 +13,25 @@ async def scheduled_task():
     try:
         logging.info("Scheduled task started")
         db = await get_database()
-        logging.info("Database connection established")
 
         trade_data = await calculate_volume_changes()
 
         if isinstance(trade_data, list) and len(trade_data) > 0:
+
             # Validate each item and create a list of Pydantic models
             trade_models = [TradeCreate(**trade) for trade in trade_data]
             # Convert each Pydantic model back to a dictionary before inserting into MongoDB
             valid_trade_data = [trade.model_dump() for trade in trade_models]
             # Insert the list of validated dictionaries into MongoDB
-            trades = await db["trades"].insert_many(valid_trade_data)
+            await db["trades"].insert_many(valid_trade_data)
 
-            logging.info(f"Trades inserted: {trades.inserted_ids}")
         else:
             logging.info("No trade data to insert")
 
-        logging.info(f"Task executed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
     except Exception as e:
         logging.error(f"An error occurred: {e}")
+
+
 
 def run_async_task():
     try:
