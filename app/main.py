@@ -9,7 +9,6 @@ from app.core.logging import setup_logging
 # Set up logging
 setup_logging()
 
-
 # Define the lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,7 +33,6 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app with lifespan
 app = FastAPI(lifespan=lifespan)
-
 
 # Example route
 @app.get("/")
