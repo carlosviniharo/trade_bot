@@ -30,7 +30,6 @@ async def lifespan(app: FastAPI):
         await Database.disconnect()  # Disconnect from the database
         logging.info("Database disconnected.")
 
-
 # Create FastAPI app with lifespan
 app = FastAPI(lifespan=lifespan)
 
