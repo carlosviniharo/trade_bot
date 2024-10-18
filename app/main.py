@@ -46,7 +46,6 @@ async def read_root():
 # Include routers
 app.include_router(trade_router.router)
 
-#
 # # Endpoint to test MongoDB connection
 # @app.get("/test-connection")
 # async def test_connection():
