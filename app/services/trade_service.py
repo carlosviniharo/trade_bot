@@ -2,7 +2,6 @@
 from bson import ObjectId
 from app.models.trade import User, UserCreate, Trade, TradeCreate
 from app.core.database import get_database
-from app.utils.helper import calculate_volume_changes
 
 
 # Helper to convert BSON ObjectId to string and format the user data
@@ -60,16 +59,10 @@ def trade_helper(trade) -> Trade:
         # date_of_modification=trade["date_of_modification"]
     )
 
-# async def create_trade(trade_data: TradeCreate):
-async def create_trade():
+async def create_trade(trade_data: TradeCreate):
     db = await get_database()
-    trade = {}
-    # new_trade = await db["trades"].insert_one(trade_data.model_dump())
-    # trade = await db["trades"].find_one({"_id": new_trade.inserted_id})
-    trade_data = await calculate_volume_changes()
-    if trade_data is not {}:
-        trade = await db["trades"].insert_one(trade_data[0])
-    trade = await db["trades"].find_one({"_id": trade.inserted_id})
+    new_trade = await db["trades"].insert_one(trade_data.model_dump())
+    trade = await db["trades"].find_one({"_id": new_trade.inserted_id})
     return trade_helper(trade)
 
 

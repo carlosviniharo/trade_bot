@@ -15,5 +15,8 @@ This is a microservice to extract high changes in the volume of the coins listed
 ```docker run -v ${PWD}:/app -p 8000:8000 trade_bot```
 
 Note: Do not include the library TaLib in the requirements.txt file. It is already included in the Dockerfile.
+You can use this command to debug the docker in case of any issues.
+
+```docker run -it --entrypoint /bin/bash trade_bot```
 
 

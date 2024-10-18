@@ -1,38 +1,56 @@
 import asyncio
 import logging
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import time
 from app.core.database import get_database
+from app.models.trade import TradeCreate
 from app.utils.helper import calculate_volume_changes
 
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
 
-# Function that you want to run periodically
 async def scheduled_task():
-    # db = await get_database()
-    # trade_data = await calculate_volume_changes()
-    # if trade_data is not {}:
-    #     await db["trades"].insert_one(trade_data[0])
-    logging.info(f"Task executed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    try:
+        logging.info("Scheduled task started")
+        db = await get_database()
+        logging.info("Database connection established")
 
+        trade_data = await calculate_volume_changes()
+
+        if isinstance(trade_data, list) and len(trade_data) > 0:
+            # Validate each item and create a list of Pydantic models
+            trade_models = [TradeCreate(**trade) for trade in trade_data]
+            # Convert each Pydantic model back to a dictionary before inserting into MongoDB
+            valid_trade_data = [trade.model_dump() for trade in trade_models]
+            # Insert the list of validated dictionaries into MongoDB
+            trades = await db["trades"].insert_many(valid_trade_data)
+
+            logging.info(f"Trades inserted: {trades.inserted_ids}")
+        else:
+            logging.info("No trade data to insert")
+
+        logging.info(f"Task executed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
 
 def run_async_task():
-    loop = asyncio.get_event_loop()  # Get the current event loop
-    if loop.is_running():
-        # If the loop is already running, use create_task instead of asyncio.run()
-        loop.create_task(scheduled_task())
-    else:
-        # If no loop is running, start one with asyncio.run()
-        asyncio.run(scheduled_task())
+    try:
+        loop = asyncio.get_running_loop()  # Try to get the current running loop
+    except RuntimeError:
+        loop = asyncio.new_event_loop()  # Create a new loop if none exists
+        asyncio.set_event_loop(loop)
+
+        # Run the async task and wait for it to complete
+    loop.run_until_complete(scheduled_task())
 
 # Initialize the scheduler
-scheduler = BackgroundScheduler()
+scheduler = AsyncIOScheduler()
 
 def start_scheduler():
-    # Schedule a job to start at 12:07 and then run every 15 minutes
+    # Schedule a job to start at 12:07 and then run every 3 minutes
     logging.info("Starting scheduler...")
-    # scheduler.add_job(scheduled_task, CronTrigger(hour='*', minute='7,22,37,44,49,50,51,52'))
-    scheduler.add_job(scheduled_task, CronTrigger.from_crontab('*/4 * * * *'))
+    scheduler.add_job(scheduled_task, "interval", minutes=2)  # Correct function reference
     scheduler.start()
 
 def shutdown_scheduler():

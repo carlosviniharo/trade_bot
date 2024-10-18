@@ -43,7 +43,7 @@ async def delete_user_by_id(user_id: str):
 
 @router.post("/trades/", response_model=Trade)
 async def create_new_trade(trade: TradeCreate):
-    return await create_trade()
+    return await create_trade(trade)
 
 @router.get("/trades/", response_model=list[Trade])
 async def get_all_trades():
