@@ -1,3 +1,4 @@
+import re
 import sys
 import asyncio
 import ccxt.async_support as ccxt_async
@@ -35,7 +36,7 @@ async def get_historical_data(symbol, since):
 async def process_symbol(symbol, since):
     df = await get_historical_data(symbol, since)
     if df is not None and len(df) > 1:
-        df['symbol'] = symbol
+        df['symbol'] = re.match(r"^[^/ \s]*", symbol).group(0)
         df['price_change'] = ta.ROC(df['close'].values, timeperiod=1)
         df['volume_change'] = ta.ROC(df['volume'].values, timeperiod=1).round(2)
         df['ATR'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=ATR_PERIOD)
