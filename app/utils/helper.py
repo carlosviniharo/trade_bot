@@ -74,18 +74,23 @@ async def calculate_volume_changes():
     tasks = [process_symbol(symbol, since) for symbol in usdt_pairs]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    for result in results:
-        if isinstance(result, pd.DataFrame):
-            df_final_values = pd.concat([df_final_values, result])
-
-    if df_final_values.empty:
+    # Collect successful DataFrame results
+    dataframes = [result for result in results if isinstance(result, pd.DataFrame)]
+    if not dataframes:
         return "No significant volume changes at the moment"
 
-    df_final_values.sort_values(by='volume_change', ascending=False, inplace=True)
-    df_final_values = df_final_values.head(3)  # Keep top 3
+    # Concatenate all DataFrames at once
+    df_final_values = pd.concat(dataframes, ignore_index=True)
+
+    # Sort and limit to top 3, then reset index
+    df_final_values = (
+        df_final_values
+        .sort_values(by='volume_change', ascending=False)
+        .head(3)
+        .reset_index(drop=True)  # Reset the index here
+    )
 
     df_final_values = calculate_support_resistance(df_final_values)
-    df_final_values.reset_index(drop=True, inplace=True)
 
     # Log and return top 3 coins with the highest volume change as a dictionary
     result_dict = df_final_values[
