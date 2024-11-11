@@ -42,7 +42,7 @@ async def process_symbol(symbol, since):
         df['ATR'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=ATR_PERIOD)
         df['precentageATR'] = (df['ATR'] / df['close']) * 100
 
-        if abs(df['price_change'].iloc[-1]) >= max(df['precentageATR'].iloc[-1], 1.5):
+        if abs(df['price_change'].iloc[-1]) > min(df['precentageATR'].iloc[-1], 2):
             df['ema_9'] = ta.EMA(df['close'].values, timeperiod=9)
             return df.iloc[[-1]]
     return None
@@ -63,7 +63,6 @@ def calculate_support_resistance(df):
 
 async def calculate_volume_changes():
     tickers = await get_futures_tickers()
-    df_final_values = pd.DataFrame()
 
     now = datetime.now(timezone.utc)
     since = int((now - timedelta(days=1)).timestamp() * 1000)
@@ -95,5 +94,7 @@ async def calculate_volume_changes():
     # Log and return top 3 coins with the highest volume change as a dictionary
     result_dict = df_final_values[
         ['symbol', 'volume_change', 'close', 'r1', 's1', 'r2', 's2', 'r3', 's3']].to_dict(orient='records')
+
+    await exchange.close()
 
     return result_dict

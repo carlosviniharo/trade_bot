@@ -23,4 +23,12 @@ You can use this command to debug the docker in case of any issues.
 docker run -it --entrypoint /bin/bash trade_bot
 ```
 
+### For the manual deployment of the projects in Google Cloud Run from the k8s directory.
+```bash
+kubectl apply -f .
+```
+### Notice that you should set the .env file in the k8s directory of the project.
+```bash
+kubectl create secret generic tradebot-env --from-env-file=.env
+```
 

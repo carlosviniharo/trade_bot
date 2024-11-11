@@ -49,7 +49,7 @@ scheduler = AsyncIOScheduler()
 def start_scheduler():
     # Schedule a job to start at 12:07 and then run every 3 minutes
     logging.info("Starting scheduler...")
-    scheduler.add_job(scheduled_task, "interval", minutes=2)  # Correct function reference
+    scheduler.add_job(scheduled_task, "interval", minutes=5)  # Correct function reference
     scheduler.start()
 
 def shutdown_scheduler():
