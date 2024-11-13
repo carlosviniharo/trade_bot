@@ -63,6 +63,7 @@ def calculate_support_resistance(df):
 
 async def calculate_volume_changes():
     tickers = await get_futures_tickers()
+    df_final_values = pd.DataFrame()
 
     now = datetime.now(timezone.utc)
     since = int((now - timedelta(days=1)).timestamp() * 1000)
@@ -95,6 +96,6 @@ async def calculate_volume_changes():
     result_dict = df_final_values[
         ['symbol', 'volume_change', 'close', 'r1', 's1', 'r2', 's2', 'r3', 's3']].to_dict(orient='records')
 
-    await exchange.close()
+    # await exchange.close()
 
     return result_dict

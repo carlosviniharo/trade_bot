@@ -4,14 +4,14 @@ This is a microservice to extract high changes in the volume of the coins listed
 ## How to create the mongo db container.
 1. Run the following command to create the mongo db container.
 
-```
+```bash
 docker run -d -p 27017:27017 --name mongo mongo
 ```
 
 ## How to run the project in you local docker environment.
 1. Clone the repository.
 2. Run the following command to build the docker image.
-```
+```bash
 docker build -t trade_bot .
 docker run -v $(pwd):/app -p 8000:8000 trade_bot
 docker run -v ${PWD}:/app -p 8000:8000 trade_bot 
@@ -22,6 +22,10 @@ You can use this command to debug the docker in case of any issues.
 ```
 docker run -it --entrypoint /bin/bash trade_bot
 ```
+###Kubernetes Deployment Documentation
+
+### Direction of the registry of the docker image.
+```us-central1-docker.pkg.dev/inspired-oath-441023-v1/docker-repo/ ```
 
 ### For the manual deployment of the projects in Google Cloud Run from the k8s directory.
 ```bash
