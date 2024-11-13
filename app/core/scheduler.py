@@ -4,7 +4,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import time
 from app.core.database import get_database
 from app.models.trade import TradeCreate
-from app.utils.helper import calculate_volume_changes
+from app.utils.helper import calculate_volume_changes, exchange
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -29,8 +29,11 @@ async def scheduled_task():
             logging.info("No trade data to insert")
 
     except Exception as e:
+
         logging.error(f"An error occurred: {e}")
 
+    finally:
+        await exchange.close()
 
 
 def run_async_task():
