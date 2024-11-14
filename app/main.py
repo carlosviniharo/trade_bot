@@ -9,9 +9,6 @@ from app.routers import trade_router
 from app.core.database import Database
 from app.core.logging import setup_logging
 
-# Set Windows event loop policy
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Set up logging
 setup_logging()
@@ -19,6 +16,10 @@ setup_logging()
 # Define the lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Set Windows event loop policy
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     try:
         logging.info("Connecting to the database...")
         await Database.connect()  # Connect to the database

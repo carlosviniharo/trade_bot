@@ -1,7 +1,14 @@
 # services/user_service.py
+import asyncio
+import logging
+import sys
+
 from bson import ObjectId
+from fastapi import HTTPException
+
 from app.models.trade import User, UserCreate, Trade, TradeCreate
 from app.core.database import get_database
+from app.utils.helper import BaseVolumeAnalyzer
 
 
 # Helper to convert BSON ObjectId to string and format the user data
@@ -70,3 +77,19 @@ async def list_trades():
     db = await get_database()
     trades = await db["trades"].find().to_list(1000)
     return [trade_helper(trade) for trade in trades]
+
+async def get_atr(symbol: str):
+
+    trade = BaseVolumeAnalyzer()
+    try:
+        await trade.initialize()
+        await trade.get_historical_data(symbol)
+        trade.calculate_atr()
+        df = trade.get_df()
+    except Exception as e:
+        # Raising an HTTPException with a status code and the error message
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        await trade.close()
+    logging.info(df.to_dict(orient='records')[-1])
+    return df.to_dict(orient='records')[-1]

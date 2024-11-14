@@ -35,3 +35,13 @@ class TradeCreate(TradeData):
 
 class Trade(TradeData):
     id: str
+
+class AtrData(BaseModel):
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    ATR: float
+    percentageATR: float

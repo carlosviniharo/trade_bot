@@ -1,20 +1,22 @@
 import re
-import sys
 import asyncio
+import sys
+
 import ccxt.async_support as ccxt_async
 import pandas as pd
 import talib as ta
 from datetime import datetime, timedelta, timezone
 
-# Add this code block right after the imports
+
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-
-class BinanceVolumeAnalyzer:
+class BaseVolumeAnalyzer:
     def __init__(self, atr_period=14):
         self.atr_period = atr_period
+        self.since = int((datetime.now(timezone.utc) - timedelta(days=1)).timestamp() * 1000)
         self.exchange = None
+        self.df = pd.DataFrame()
 
     async def initialize(self):
         """Initialize the Binance futures exchange"""
@@ -34,32 +36,28 @@ class BinanceVolumeAnalyzer:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
         return await self.exchange.fetch_tickers()
 
-    async def get_historical_data(self, symbol, since):
+    async def get_historical_data(self, symbol):
         """Fetch historical OHLCV data"""
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
 
-        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe='15m', since=since)
+        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe='15m', since=self.since)
         if ohlcv:
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            return df
-        return None
+            self.df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'], unit='ms')
+        else:
+            self.df = pd.DataFrame()
 
-    async def process_symbol(self, symbol, since):
-        """Process individual symbol data"""
-        df = await self.get_historical_data(symbol, since)
-        if df is not None and len(df) > 1:
-            df['symbol'] = re.match(r"^[^/ \s]*", symbol).group(0)
-            df['price_change'] = ta.ROC(df['close'].values, timeperiod=1)
-            df['volume_change'] = ta.ROC(df['volume'].values, timeperiod=1).round(2)
-            df['ATR'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=self.atr_period)
-            df['precentageATR'] = (df['ATR'] / df['close']) * 100
+    def calculate_atr(self, period=14):
+        self.df['ATR'] = ta.ATR(self.df['high'], self.df['low'], self.df['close'], timeperiod=period)
+        self.df['percentageATR'] = (self.df['ATR'] / self.df['close']) * 100
 
-            if abs(df['price_change'].iloc[-1]) > min(df['precentageATR'].iloc[-1], 2):
-                df['ema_9'] = ta.EMA(df['close'].values, timeperiod=9)
-                return df.iloc[[-1]]
-        return None
+    def get_df(self):
+        """Getter method to retrieve the DataFrame"""
+        if self.df.empty:
+            raise ValueError("DataFrame is empty. Please call get_historical_data first.")
+        return self.df
+
 
     @staticmethod
     def calculate_support_resistance(df):
@@ -73,19 +71,40 @@ class BinanceVolumeAnalyzer:
         df['s3'] = df['low'] - 2 * (df['high'] - df['pivot_point'])
         return df
 
+
+class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
+
+    def __init__(self, atr_period=14):
+        super().__init__(atr_period)
+        self.df_final_values = pd.DataFrame()
+
+
+    async def process_symbol(self, symbol):
+        """Process individual symbol data"""
+        await self.get_historical_data(symbol)
+        if self.df is not None and len(self.df) > 1:
+            self.df['symbol'] = re.match(r"^[^/ \s]*", symbol).group(0)
+            self.df['price_change'] = ta.ROC(self.df['close'].values, timeperiod=1)
+            self.df['volume_change'] = ta.ROC(self.df['volume'].values, timeperiod=1).round(2)
+
+            self.calculate_atr(self.atr_period)
+
+            if abs(self.df['price_change'].iloc[-1]) > min(self.df['percentageATR'].iloc[-1], 2):
+                self.df['ema_9'] = ta.EMA(self.df['close'].values, timeperiod=9)
+                return self.df.iloc[[-1]]
+        return None
+
     async def calculate_volume_changes(self):
         """Calculate volume changes and return top 3 results"""
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
 
         tickers = await self.get_futures_tickers()
-        now = datetime.now(timezone.utc)
-        since = int((now - timedelta(days=1)).timestamp() * 1000)
 
         # Filter USDT pairs
         usdt_pairs = [symbol for symbol in tickers.keys() if symbol.endswith('USDT')]
 
-        tasks = [self.process_symbol(symbol, since) for symbol in usdt_pairs]
+        tasks = [self.process_symbol(symbol) for symbol in usdt_pairs]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Collect successful DataFrame results
@@ -94,102 +113,16 @@ class BinanceVolumeAnalyzer:
             return "No significant volume changes at the moment"
 
         # Concatenate and process results
-        df_final_values = pd.concat(dataframes, ignore_index=True)
-        df_final_values = (
-            df_final_values
+        self.df_final_values = pd.concat(dataframes, ignore_index=True)
+        self.df_final_values = (
+           self. df_final_values
             .sort_values(by='volume_change', ascending=False)
             .head(3)
             .reset_index(drop=True)
         )
 
-        df_final_values = self.calculate_support_resistance(df_final_values)
+        self.df_final_values = self.calculate_support_resistance(self.df_final_values)
 
-        return df_final_values[
+        return self.df_final_values[
             ['symbol', 'volume_change', 'close', 'r1', 's1', 'r2', 's2', 'r3', 's3']
         ].to_dict(orient='records')
-
-# # Initialize Binance futures client
-# exchange = ccxt_async.binance({
-#     'options': {'defaultType': 'future'}
-# })
-#
-#
-# async def get_futures_tickers():
-#     tickers = await exchange.fetch_tickers()
-#     return tickers
-#
-#
-# async def get_historical_data(symbol, since):
-#     # Fetch historical OHLCV data (15-minute intervals)
-#     ohlcv = await exchange.fetch_ohlcv(symbol, timeframe='15m', since=since)
-#     if ohlcv:
-#         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-#         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-#         return df
-#     return None
-#
-#
-# async def process_symbol(symbol, since):
-#     df = await get_historical_data(symbol, since)
-#     if df is not None and len(df) > 1:
-#         df['symbol'] = re.match(r"^[^/ \s]*", symbol).group(0)
-#         df['price_change'] = ta.ROC(df['close'].values, timeperiod=1)
-#         df['volume_change'] = ta.ROC(df['volume'].values, timeperiod=1).round(2)
-#         df['ATR'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=ATR_PERIOD)
-#         df['precentageATR'] = (df['ATR'] / df['close']) * 100
-#
-#         if abs(df['price_change'].iloc[-1]) > min(df['precentageATR'].iloc[-1], 2):
-#             df['ema_9'] = ta.EMA(df['close'].values, timeperiod=9)
-#             return df.iloc[[-1]]
-#     return None
-#
-#
-# def calculate_support_resistance(df):
-#     # Calculate support and resistance levels using pivot points
-#     df['pivot_point'] = (df['high'] + df['low'] + df['close']) / 3
-#     df['r1'] = (2 * df['pivot_point']) - df['low']
-#     df['s1'] = (2 * df['pivot_point']) - df['high']
-#     df['r2'] = df['pivot_point'] + (df['high'] - df['low'])
-#     df['s2'] = df['pivot_point'] - (df['high'] - df['low'])
-#     df['r3'] = df['high'] + 2 * (df['pivot_point'] - df['low'])
-#     df['s3'] = df['low'] - 2 * (df['high'] - df['pivot_point'])
-#
-#     return df
-#
-#
-# async def calculate_volume_changes():
-#     tickers = await get_futures_tickers()
-#     df_final_values = pd.DataFrame()
-#
-#     now = datetime.now(timezone.utc)
-#     since = int((now - timedelta(days=1)).timestamp() * 1000)
-#
-#     # Filter USDT pairs before the loop
-#     usdt_pairs = [symbol for symbol in tickers.keys() if symbol.endswith('USDT')]
-#
-#     tasks = [process_symbol(symbol, since) for symbol in usdt_pairs]
-#     results = await asyncio.gather(*tasks, return_exceptions=True)
-#
-#     # Collect successful DataFrame results
-#     dataframes = [result for result in results if isinstance(result, pd.DataFrame)]
-#     if not dataframes:
-#         return "No significant volume changes at the moment"
-#
-#     # Concatenate all DataFrames at once
-#     df_final_values = pd.concat(dataframes, ignore_index=True)
-#
-#     # Sort and limit to top 3, then reset index
-#     df_final_values = (
-#         df_final_values
-#         .sort_values(by='volume_change', ascending=False)
-#         .head(3)
-#         .reset_index(drop=True)  # Reset the index here
-#     )
-#
-#     df_final_values = calculate_support_resistance(df_final_values)
-#
-#     # Log and return top 3 coins with the highest volume change as a dictionary
-#     result_dict = df_final_values[
-#         ['symbol', 'volume_change', 'close', 'r1', 's1', 'r2', 's2', 'r3', 's3']].to_dict(orient='records')
-#
-#     return result_dict

@@ -1,13 +1,18 @@
 # routers/user_router.py
 from fastapi import APIRouter, HTTPException
-from app.models.trade import User, UserCreate, TradeData, TradeCreate, Trade
+from fastapi.params import Query
+
+from app.core import logging
+from app.models.trade import User, UserCreate, TradeData, TradeCreate, Trade, AtrData
 from app.services.trade_service import (
     create_user,
     get_user,
     list_users,
     update_user,
     delete_user,
-    create_trade, list_trades
+    create_trade,
+    list_trades,
+    get_atr
 )
 
 router = APIRouter()
@@ -48,3 +53,10 @@ async def create_new_trade(trade: TradeCreate):
 @router.get("/trades/", response_model=list[Trade])
 async def get_all_trades():
     return await list_trades()
+
+@router.get("/getAtrBySymbol/", response_model=AtrData)
+async def get_atr_by_symbol(symbol: str = Query(...)):
+    atr = await get_atr(symbol)
+    if atr is None:
+        raise HTTPException(status_code=404, detail=f"ATR data for symbol '{symbol}' not found")
+    return atr[-1]
