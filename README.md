@@ -22,7 +22,7 @@ You can use this command to debug the docker in case of any issues.
 ```
 docker run -it --entrypoint /bin/bash trade_bot
 ```
-###Kubernetes Deployment Documentation
+### Kubernetes Deployment Documentation
 
 ### Direction of the registry of the docker image.
 ```us-central1-docker.pkg.dev/inspired-oath-441023-v1/docker-repo/ ```

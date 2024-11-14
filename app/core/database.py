@@ -2,7 +2,6 @@ import os
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic_settings import BaseSettings
-from pymongo.errors import ConnectionFailure
 
 
 # Load settings from environment variables

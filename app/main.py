@@ -1,3 +1,6 @@
+import asyncio
+import sys
+
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 import logging
@@ -5,6 +8,10 @@ from app.core.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import trade_router
 from app.core.database import Database
 from app.core.logging import setup_logging
+
+# Set Windows event loop policy
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Set up logging
 setup_logging()
@@ -43,13 +50,4 @@ async def read_root():
 # Include routers
 app.include_router(trade_router.router)
 
-# # Endpoint to test MongoDB connection
-# @app.get("/test-connection")
-# async def test_connection():
-#     try:
-#         # Attempt to fetch the server status
-#         server_info = await Database.db.command("ping")
-#         return {"status": "Connected", "server_info": server_info}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Connection failed: {str(e)}")
 

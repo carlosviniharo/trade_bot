@@ -4,17 +4,20 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import time
 from app.core.database import get_database
 from app.models.trade import TradeCreate
-from app.utils.helper import calculate_volume_changes, exchange
+from app.utils.helper import BinanceVolumeAnalyzer
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
 
 async def scheduled_task():
+    analyzer = BinanceVolumeAnalyzer()
+
     try:
         logging.info("Scheduled task started")
         db = await get_database()
 
-        trade_data = await calculate_volume_changes()
+        await analyzer.initialize()
+        trade_data = await  analyzer.calculate_volume_changes()
 
         if isinstance(trade_data, list) and len(trade_data) > 0:
 
@@ -33,7 +36,7 @@ async def scheduled_task():
         logging.error(f"An error occurred: {e}")
 
     finally:
-        await exchange.close()
+        await analyzer.close()
 
 
 def run_async_task():
