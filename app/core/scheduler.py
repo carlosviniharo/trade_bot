@@ -5,7 +5,7 @@ from apscheduler.triggers.cron import CronTrigger
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.database import get_database
-from app.models.trade import TradeCreate
+from app.models.trade import StockChangeRecordCreate
 from app.utils.helper import BinanceVolumeAnalyzer
 
 # Initialize logging
@@ -24,7 +24,7 @@ async def scheduled_task():
         if isinstance(trade_data, list) and len(trade_data) > 0:
 
             # Validate each item and create a list of Pydantic models
-            trade_models = [TradeCreate(**trade) for trade in trade_data]
+            trade_models = [StockChangeRecordCreate(**trade) for trade in trade_data]
             # Convert each Pydantic model back to a dictionary before inserting into MongoDB
             valid_trade_data = [trade.model_dump() for trade in trade_models]
             # Insert the list of validated dictionaries into MongoDB
@@ -57,9 +57,8 @@ scheduler = AsyncIOScheduler()
 def start_scheduler():
     # Schedule a job to start at 12:07 and then run every 3 minutes
     logging.info("Starting scheduler...")
-    # scheduler.add_job(scheduled_task, "interval", minutes=5)  # Correct function reference
     trigger = CronTrigger(minute="13,28,35,43,58")
-    scheduler.add_job(scheduled_task, trigger)
+    # scheduler.add_job(scheduled_task, trigger)
     scheduler.start()
 
 def shutdown_scheduler():

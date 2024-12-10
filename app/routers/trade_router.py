@@ -3,16 +3,22 @@ from fastapi import APIRouter, HTTPException
 from fastapi.params import Query
 
 from app.core import logging
-from app.models.trade import User, UserCreate, TradeData, TradeCreate, Trade, AtrData
+from app.models.trade import (
+    User,
+    UserCreate,
+    AtrData,
+    StockChangeRecordRead,
+    StockChangeRecordCreate
+)
 from app.services.trade_service import (
     create_user,
     get_user,
     list_users,
     update_user,
     delete_user,
-    create_trade,
-    list_trades,
-    get_atr
+    # create_trade,
+    # list_trades,
+    get_atr, create_stock_change_records, list_stock_change_records
 )
 
 router = APIRouter()
@@ -46,13 +52,13 @@ async def delete_user_by_id(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted"}
 
-@router.post("/trades/", response_model=Trade)
-async def create_new_trade(trade: TradeCreate):
-    return await create_trade(trade)
+@router.post("/stockChangeRecord/", response_model=StockChangeRecordRead)
+async def create_new_stock_change_records(stock_change_record: StockChangeRecordCreate):
+    return await create_stock_change_records(stock_change_record)
 
-@router.get("/trades/", response_model=list[Trade])
-async def get_all_trades():
-    return await list_trades()
+@router.get("/stockChangeRecord/", response_model=list[StockChangeRecordRead])
+async def get_list_stock_change_records():
+    return await list_stock_change_records()
 
 @router.get("/getAtrBySymbol/", response_model=AtrData)
 async def get_atr_by_symbol(symbol: str = Query(...)):

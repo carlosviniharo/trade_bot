@@ -6,7 +6,7 @@ import sys
 from bson import ObjectId
 from fastapi import HTTPException
 
-from app.models.trade import User, UserCreate, Trade, TradeCreate
+from app.models.trade import User, UserCreate, StockChangeRecordCreate, StockChangeRecord, StockChangeRecordRead
 from app.core.database import get_database
 from app.utils.helper import BaseVolumeAnalyzer
 
@@ -50,37 +50,26 @@ async def delete_user(user_id: str):
     return result.deleted_count
 
 
-def trade_helper(trade) -> Trade:
-    return Trade(
-        id=str(trade["_id"]),  # Assuming MongoDB ObjectId
-        symbol=trade["symbol"],
-        volume_change=trade["volume_change"],
-        price_change=trade.get("price_change", 0),
-        close=trade["close"],
-        # r1=trade["r1"],
-        # s1=trade["s1"],
-        # r2=trade["r2"],
-        # s2=trade["s2"],
-        # r3=trade["r3"],
-        # s3=trade["s3"],
-        # date_of_creation=trade["date_of_creation"],
-        # date_of_modification=trade["date_of_modification"]
+def stock_change_record_helper(stock_change_record) -> StockChangeRecordRead:
+    return StockChangeRecordRead(
+        id=str(stock_change_record["_id"]),
+        price_changes=stock_change_record["price_changes"],
+        volume_changes=stock_change_record["volume_changes"],
     )
 
-async def create_trade(trade_data: TradeCreate):
+async def create_stock_change_records(data_stock_change_record: StockChangeRecordCreate):
     db = await get_database()
-    new_trade = await db["trades"].insert_one(trade_data.model_dump())
-    trade = await db["trades"].find_one({"_id": new_trade.inserted_id})
-    return trade_helper(trade)
+    new_stock_change_record = await db["stock_change_records"].insert_one(data_stock_change_record.model_dump())
+    stock_change_record = await db["stock_change_records"].find_one({"_id": new_stock_change_record.inserted_id})
+    return stock_change_record_helper(stock_change_record)
 
 
-async def list_trades():
+async def list_stock_change_records():
     db = await get_database()
-    trades = await db["trades"].find().to_list(1000)
-    return [trade_helper(trade) for trade in trades]
+    stock_change_records = await db["stock_change_records"].find().to_list(1000)
+    return [stock_change_record_helper(stock) for stock in stock_change_records]
 
 async def get_atr(symbol: str):
-
     trade = BaseVolumeAnalyzer()
     try:
         await trade.initialize()
