@@ -7,6 +7,7 @@ import pandas as pd
 import talib as ta
 from datetime import datetime, timedelta, timezone
 
+MIN_PRICE_CHANGE = 2
 
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -27,8 +28,12 @@ class BaseVolumeAnalyzer:
     async def close(self):
         """Properly close the exchange connection"""
         if self.exchange:
-            await self.exchange.close()
-            self.exchange = None
+            try:
+                await self.exchange.close()
+            except Exception as e:
+                raise RuntimeError(f"Error closing exchange: {e}")
+            finally:
+                self.exchange = None
 
     async def get_futures_tickers(self):
         """Fetch all futures tickers"""
@@ -58,7 +63,6 @@ class BaseVolumeAnalyzer:
             raise ValueError("DataFrame is empty. Please call get_historical_data first.")
         return self.df
 
-
     @staticmethod
     def calculate_support_resistance(df):
         """Calculate support and resistance levels"""
@@ -78,7 +82,6 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         super().__init__(atr_period)
         self.df_final_values = pd.DataFrame()
 
-
     async def process_symbol(self, symbol):
         """Process individual symbol data"""
         await self.get_historical_data(symbol)
@@ -89,12 +92,12 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
 
             self.calculate_atr(self.atr_period)
 
-            if abs(self.df['price_change'].iloc[-1]) > min(self.df['percentageATR'].iloc[-1], 2):
-                self.df['ema_9'] = ta.EMA(self.df['close'].values, timeperiod=9)
+            if abs(self.df['price_change'].iloc[-1]) > min(self.df['percentageATR'].iloc[-1], MIN_PRICE_CHANGE):
+                # self.df['ema_9'] = ta.EMA(self.df['close'].values, timeperiod=9)
                 return self.df.iloc[[-1]]
         return None
 
-    async def calculate_volume_changes(self):
+    async def calculate_market_spikes(self, metrics="volume_change"):
         """Calculate volume changes and return top 3 results"""
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
@@ -116,13 +119,13 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         self.df_final_values = pd.concat(dataframes, ignore_index=True)
         self.df_final_values = (
            self. df_final_values
-            .sort_values(by='volume_change', ascending=False)
+            .sort_values(by=metrics, ascending=False)
             .head(3)
             .reset_index(drop=True)
         )
 
-        self.df_final_values = self.calculate_support_resistance(self.df_final_values)
+        # self.df_final_values = self.calculate_support_resistance(self.df_final_values)
 
         return self.df_final_values[
-            ['symbol', 'volume_change', 'close', 'r1', 's1', 'r2', 's2', 'r3', 's3']
+            ['symbol', 'volume_change', 'price_change', 'close',]
         ].to_dict(orient='records')

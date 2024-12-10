@@ -59,4 +59,4 @@ async def get_atr_by_symbol(symbol: str = Query(...)):
     atr = await get_atr(symbol)
     if atr is None:
         raise HTTPException(status_code=404, detail=f"ATR data for symbol '{symbol}' not found")
-    return atr[-1]
+    return atr

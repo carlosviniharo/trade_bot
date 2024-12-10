@@ -17,6 +17,7 @@ spec:
       containers:
       - name: tradebot
         image: us-central1-docker.pkg.dev/inspired-oath-441023-v1/docker-repo/tradebot:v.0.1
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
         envFrom:

@@ -55,13 +55,14 @@ def trade_helper(trade) -> Trade:
         id=str(trade["_id"]),  # Assuming MongoDB ObjectId
         symbol=trade["symbol"],
         volume_change=trade["volume_change"],
+        price_change=trade.get("price_change", 0),
         close=trade["close"],
-        r1=trade["r1"],
-        s1=trade["s1"],
-        r2=trade["r2"],
-        s2=trade["s2"],
-        r3=trade["r3"],
-        s3=trade["s3"],
+        # r1=trade["r1"],
+        # s1=trade["s1"],
+        # r2=trade["r2"],
+        # s2=trade["s2"],
+        # r3=trade["r3"],
+        # s3=trade["s3"],
         # date_of_creation=trade["date_of_creation"],
         # date_of_modification=trade["date_of_modification"]
     )

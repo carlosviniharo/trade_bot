@@ -1,7 +1,9 @@
 import asyncio
+
+from apscheduler.triggers.cron import CronTrigger
+
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import time
 from app.core.database import get_database
 from app.models.trade import TradeCreate
 from app.utils.helper import BinanceVolumeAnalyzer
@@ -17,7 +19,7 @@ async def scheduled_task():
         db = await get_database()
 
         await analyzer.initialize()
-        trade_data = await  analyzer.calculate_volume_changes()
+        trade_data = await analyzer.calculate_market_spikes()
 
         if isinstance(trade_data, list) and len(trade_data) > 0:
 
@@ -55,7 +57,9 @@ scheduler = AsyncIOScheduler()
 def start_scheduler():
     # Schedule a job to start at 12:07 and then run every 3 minutes
     logging.info("Starting scheduler...")
-    scheduler.add_job(scheduled_task, "interval", minutes=5)  # Correct function reference
+    # scheduler.add_job(scheduled_task, "interval", minutes=5)  # Correct function reference
+    trigger = CronTrigger(minute="13,28,35,43,58")
+    scheduler.add_job(scheduled_task, trigger)
     scheduler.start()
 
 def shutdown_scheduler():

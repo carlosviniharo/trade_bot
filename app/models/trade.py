@@ -17,13 +17,14 @@ class User(UserBase):
 class TradeData(BaseModel):
     symbol: str
     volume_change: float
+    price_change: float
     close: float
-    r1: float
-    s1: float
-    r2: float
-    s2: float
-    r3: float
-    s3: float
+    # r1: float
+    # s1: float
+    # r2: float
+    # s2: float
+    # r3: float
+    # s3: float
     date_of_creation: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     date_of_modification: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
 
