@@ -20,7 +20,7 @@ class SymbolChange(BaseModel):
     symbol: str
     price_change: Optional[float] = None
     volume_change: Optional[float] = None
-    close_price: float
+    close: float
 
 # Define the StockChangeRecord model
 class StockChangeRecord(BaseModel):

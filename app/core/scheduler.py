@@ -19,16 +19,21 @@ async def scheduled_task():
         db = await get_database()
 
         await analyzer.initialize()
-        trade_data = await analyzer.calculate_market_spikes()
+        await analyzer.calculate_market_spikes()
+        most_price_change = analyzer.get_best_symbols("price_change")
+        most_volume_change = analyzer.get_best_symbols("volume_change")
 
-        if isinstance(trade_data, list) and len(trade_data) > 0:
+
+        if len(most_price_change) > 0 or len(most_volume_change) > 0:
 
             # Validate each item and create a list of Pydantic models
-            trade_models = [StockChangeRecordCreate(**trade) for trade in trade_data]
+            stock_change_record = StockChangeRecordCreate(
+                price_changes=most_price_change,
+                volume_changes=most_volume_change
+            )
             # Convert each Pydantic model back to a dictionary before inserting into MongoDB
-            valid_trade_data = [trade.model_dump() for trade in trade_models]
-            # Insert the list of validated dictionaries into MongoDB
-            await db["trades"].insert_many(valid_trade_data)
+            await db["stock_change_records"].insert_one(stock_change_record.model_dump())
+            logging.info("Trade data inserted")
 
         else:
             logging.info("No trade data to insert")
@@ -58,7 +63,8 @@ def start_scheduler():
     # Schedule a job to start at 12:07 and then run every 3 minutes
     logging.info("Starting scheduler...")
     trigger = CronTrigger(minute="13,28,35,43,58")
-    # scheduler.add_job(scheduled_task, trigger)
+    scheduler.add_job(scheduled_task, trigger)
+    # scheduler.add_job(scheduled_task, "interval", minutes=2)
     scheduler.start()
 
 def shutdown_scheduler():

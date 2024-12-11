@@ -97,7 +97,7 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
                 return self.df.iloc[[-1]]
         return None
 
-    async def calculate_market_spikes(self, metrics="volume_change"):
+    async def calculate_market_spikes(self):
         """Calculate volume changes and return top 3 results"""
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
@@ -112,20 +112,25 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
 
         # Collect successful DataFrame results
         dataframes = [result for result in results if isinstance(result, pd.DataFrame)]
+
         if not dataframes:
-            return "No significant volume changes at the moment"
+            raise RuntimeWarning("No significant volume changes at the moment")
 
         # Concatenate and process results
         self.df_final_values = pd.concat(dataframes, ignore_index=True)
-        self.df_final_values = (
-           self. df_final_values
+
+    def get_best_symbols(self, metrics="volume_change"):
+        """Return the top 3 symbols based on the given metric"""
+        if self.df_final_values.empty:
+            return []
+
+        df_best_symbols = (
+            self.df_final_values
             .sort_values(by=metrics, ascending=False)
             .head(3)
             .reset_index(drop=True)
         )
 
-        # self.df_final_values = self.calculate_support_resistance(self.df_final_values)
-
-        return self.df_final_values[
-            ['symbol', 'volume_change', 'price_change', 'close',]
+        return df_best_symbols[
+            ['symbol', metrics, 'close', ]
         ].to_dict(orient='records')
