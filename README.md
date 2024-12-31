@@ -24,15 +24,23 @@ docker run -it --entrypoint /bin/bash trade_bot
 ```
 ### Kubernetes Deployment Documentation
 
+### Navigate to the k8s directory of the project.
+```cd k8s``` 
+
 ### Direction of the registry of the docker image.
 ```us-central1-docker.pkg.dev/inspired-oath-441023-v1/docker-repo/ ```
+
+### Please include How to deploy the project in Google Cloud Run.
+```gcloud container clusters get-credentials my-first-cluster-2 --zone northamerica-northeast2-a --project inspired-oath-441023-v1```
+
+### Notice that you should set the .env file in the k8s directory of the project.
+```bash
+kubectl create secret generic tradebot-env --from-env-file=.env
+```
 
 ### For the manual deployment of the projects in Google Cloud Run from the k8s directory.
 ```bash
 kubectl apply -f .
 ```
-### Notice that you should set the .env file in the k8s directory of the project.
-```bash
-kubectl create secret generic tradebot-env --from-env-file=.env
-```
+
 

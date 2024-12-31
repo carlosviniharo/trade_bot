@@ -68,3 +68,7 @@ class AtrData(BaseModel):
     volume: float
     ATR: float
     percentageATR: float
+
+class Message(BaseModel):
+    message: str
+    success: bool

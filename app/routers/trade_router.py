@@ -8,7 +8,8 @@ from app.models.trade import (
     UserCreate,
     AtrData,
     StockChangeRecordRead,
-    StockChangeRecordCreate
+    StockChangeRecordCreate,
+    Message
 )
 from app.services.trade_service import (
     create_user,
@@ -18,7 +19,7 @@ from app.services.trade_service import (
     delete_user,
     # create_trade,
     # list_trades,
-    get_atr, create_stock_change_records, list_stock_change_records
+    get_atr, create_stock_change_records, list_stock_change_records, send_messages
 )
 
 router = APIRouter()
@@ -66,3 +67,7 @@ async def get_atr_by_symbol(symbol: str = Query(...)):
     if atr is None:
         raise HTTPException(status_code=404, detail=f"ATR data for symbol '{symbol}' not found")
     return atr
+
+@router.post("/sendMessage/", response_model=Message)
+async def get_atr_by_symbol(message: Message):
+    return await send_messages(message)

@@ -1,15 +1,15 @@
 # services/user_service.py
-import asyncio
-import logging
-import sys
-
 from bson import ObjectId
 from fastapi import HTTPException
 
+from app.core.logging import AppLogger
 from app.models.trade import User, UserCreate, StockChangeRecordCreate, StockChangeRecord, StockChangeRecordRead
 from app.core.database import get_database
 from app.utils.helper import BaseVolumeAnalyzer
-
+from app.utils.whatsapp_connector import WhatsAppOutput
+from app.core.config import settings
+# Initialize logging
+logger = AppLogger.get_logger()
 
 # Helper to convert BSON ObjectId to string and format the user data
 def user_helper(user) -> dict:
@@ -81,5 +81,17 @@ async def get_atr(symbol: str):
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
         await trade.close()
-    logging.info(df.to_dict(orient='records')[-1])
+    logger.info(df.to_dict(orient='records')[-1])
     return df.to_dict(orient='records')[-1]
+
+async def send_messages(message):
+    whastapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
+    msg = message.model_dump()
+    try:
+        await whastapp.send_text_message("447729752680", msg["message"])
+        return {"message": "Message sent successfully", "success": True}
+    except Exception as e:
+        # Raising an HTTPException with a status code and the error message
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    # finally:
+    #     await whastapp.close()

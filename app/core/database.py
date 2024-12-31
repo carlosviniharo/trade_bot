@@ -2,18 +2,8 @@ import os
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic_settings import BaseSettings
+from app.core.config import settings
 
-
-# Load settings from environment variables
-class Settings(BaseSettings):
-    mongodb_uri: str
-    mongodb_name: str
-
-    class Config:
-        env_file = os.path.join(os.path.dirname(__file__), '../../.env')
-
-
-settings = Settings()
 
 
 class Database:
@@ -22,10 +12,10 @@ class Database:
 
     @classmethod
     async def connect(cls):
-        cls.client = AsyncIOMotorClient(settings.mongodb_uri)
-        cls.db = cls.client[settings.mongodb_name]
+        cls.client = AsyncIOMotorClient(settings.MONGODB_URI)
+        cls.db = cls.client[settings.MONGODB_NAME]
         # Check if the database exists
-        if settings.mongodb_name not in await cls.client.list_database_names():
+        if settings.MONGODB_NAME not in await cls.client.list_database_names():
             # Database does not exist, create it and insert an initial document
             await cls.create_initial_document()
 

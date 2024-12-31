@@ -1,21 +1,25 @@
 import asyncio
+import sys
 
 from apscheduler.triggers.cron import CronTrigger
 
-import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.database import get_database
+from app.core.logging import AppLogger
 from app.models.trade import StockChangeRecordCreate
 from app.utils.helper import BinanceVolumeAnalyzer
 
 # Initialize logging
-logging.basicConfig(level=logging.INFO)
+logger = AppLogger.get_logger()
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 async def scheduled_task():
     analyzer = BinanceVolumeAnalyzer()
 
     try:
-        logging.info("Scheduled task started")
+        logger.info("Scheduled task started")
         db = await get_database()
 
         await analyzer.initialize()
@@ -33,14 +37,14 @@ async def scheduled_task():
             )
             # Convert each Pydantic model back to a dictionary before inserting into MongoDB
             await db["stock_change_records"].insert_one(stock_change_record.model_dump())
-            logging.info("Trade data inserted")
+            logger.info("Trade data inserted")
 
         else:
-            logging.info("No trade data to insert")
+            logger.info("No trade data to insert")
 
     except Exception as e:
 
-        logging.error(f"An error occurred: {e}")
+        logger.error(f"An error occurred: {e}")
 
     finally:
         await analyzer.close()
@@ -61,13 +65,13 @@ scheduler = AsyncIOScheduler()
 
 def start_scheduler():
     # Schedule a job to start at 12:07 and then run every 3 minutes
-    logging.info("Starting scheduler...")
-    trigger = CronTrigger(minute="13,28,35,43,58")
+    logger.info("Starting scheduler...")
+    trigger = CronTrigger(minute="13,28,43,58")
     scheduler.add_job(scheduled_task, trigger)
     # scheduler.add_job(scheduled_task, "interval", minutes=2)
     scheduler.start()
 
 def shutdown_scheduler():
-    logging.info("Shutting down the scheduler...")
+    logger.info("Shutting down the scheduler...")
     scheduler.shutdown()
-    logging.info("Scheduler shut down.")
+    logger.info("Scheduler shut down.")
