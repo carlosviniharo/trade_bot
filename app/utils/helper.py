@@ -134,3 +134,36 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         return df_best_symbols[
             ['symbol', metrics, 'close', ]
         ].to_dict(orient='records')
+
+
+def format_message_spikes(*args):
+    """
+    Formats message data from multiple dictionaries, filtering out messages
+    where both price change is less than 3.5% and volume change is less than 1000.
+
+    Args:
+        *args: Variable number of dictionaries containing message data.
+               Each dictionary should have the following keys:
+               - 'symbol' (str): The symbol of the asset (e.g., "BTCUSD").
+               - 'price_change' (float or str): The percentage price change.
+               - 'volume_change' (float or str): The percentage volume change.
+               - 'close' (float or str): The closing price.
+
+    Returns:
+        str: A formatted string containing all the messages that meet the
+             filtering criteria, separated by lines. If both price change
+             is less than 3.5% and volume change is less than 1000,
+             the message is skipped.
+    """
+    messages = []
+    for data in args:
+        # TODO: Implement a dinamic threshold as for now the values are fixed to 3.5 and 1000
+        if all([float(data.get('price_change', '0')) < 3.5, float(data.get('volume_change', '0')) < 1000]):
+            continue
+        message = f"\nSymbol: {data.get('symbol', 'N/A')}\n"
+        message += f"Price Change: {data.get('price_change', '0')}%\n"
+        message += f"Volume Change: {data.get('volume_change', '0')}%\n"
+        message += f"Close Price: {data.get('close', '0')}\n"
+        messages.append(message)
+
+    return "\n--------\n".join(messages) if messages else ""

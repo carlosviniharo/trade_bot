@@ -22,7 +22,7 @@ def user_helper(user) -> dict:
 
 async def create_user(user_data: UserCreate):
     db = await get_database()
-    new_user = await db["users"].insert_one(user_data.dict())
+    new_user = await db["users"].insert_one(user_data.model_dump())
     user = await db["users"].find_one({"_id": new_user.inserted_id})
     return user_helper(user)
 
@@ -40,7 +40,7 @@ async def list_users():
 
 async def update_user(user_id: str, user_data: UserCreate):
     db = await get_database()
-    await db["users"].update_one({"_id": ObjectId(user_id)}, {"$set": user_data.dict()})
+    await db["users"].update_one({"_id": ObjectId(user_id)}, {"$set": user_data.model_dump()})
     user = await db["users"].find_one({"_id": ObjectId(user_id)})
     return user_helper(user) if user else None
 

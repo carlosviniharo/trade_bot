@@ -7,7 +7,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.database import get_database
 from app.core.logging import AppLogger
 from app.models.trade import StockChangeRecordCreate
-from app.utils.helper import BinanceVolumeAnalyzer
+from app.utils.helper import BinanceVolumeAnalyzer, format_message_spikes
+from app.utils.whatsapp_connector import WhatsAppOutput
+from app.core.config import settings
 
 # Initialize logging
 logger = AppLogger.get_logger()
@@ -27,8 +29,19 @@ async def scheduled_task():
         most_price_change = analyzer.get_best_symbols("price_change")
         most_volume_change = analyzer.get_best_symbols("volume_change")
 
+        sym = [{'symbol': 'MOVE', 'price_change': 3.5574720388087844, 'close': 0.7685},
+               {'symbol': 'ACX', 'price_change': -2.0331030887527635, 'close': 0.7517},
+               {'symbol': 'NULS', 'price_change': -3.8431217973984966, 'close': 0.4879}]
+
+        sym_v = [{'symbol': 'NULS', 'volume_change': 35.93, 'close': 0.4879},
+                 {'symbol': 'ACX', 'volume_change': 17.59, 'close': 0.7517},
+                 {'symbol': 'MOVE', 'volume_change': 16.94, 'close': 0.7685}]
+
+        message = format_message_spikes(*sym, *sym_v)
 
         if len(most_price_change) > 0 or len(most_volume_change) > 0:
+
+            whatsapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
 
             # Validate each item and create a list of Pydantic models
             stock_change_record = StockChangeRecordCreate(
@@ -38,6 +51,9 @@ async def scheduled_task():
             # Convert each Pydantic model back to a dictionary before inserting into MongoDB
             await db["stock_change_records"].insert_one(stock_change_record.model_dump())
             logger.info("Trade data inserted")
+
+            if message:
+                await whatsapp.send_text_message("447729752680", message)
 
         else:
             logger.info("No trade data to insert")
