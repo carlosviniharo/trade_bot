@@ -9,8 +9,8 @@ from datetime import datetime, timedelta, timezone
 
 MIN_PRICE_CHANGE = 2
 
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+# if sys.platform == 'win32':
+#     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 class BaseVolumeAnalyzer:
     def __init__(self, atr_period=14):
@@ -63,17 +63,15 @@ class BaseVolumeAnalyzer:
             raise ValueError("DataFrame is empty. Please call get_historical_data first.")
         return self.df
 
-    @staticmethod
-    def calculate_support_resistance(df):
+    def calculate_support_resistance(self):
         """Calculate support and resistance levels"""
-        df['pivot_point'] = (df['high'] + df['low'] + df['close']) / 3
-        df['r1'] = (2 * df['pivot_point']) - df['low']
-        df['s1'] = (2 * df['pivot_point']) - df['high']
-        df['r2'] = df['pivot_point'] + (df['high'] - df['low'])
-        df['s2'] = df['pivot_point'] - (df['high'] - df['low'])
-        df['r3'] = df['high'] + 2 * (df['pivot_point'] - df['low'])
-        df['s3'] = df['low'] - 2 * (df['high'] - df['pivot_point'])
-        return df
+        self.df['pivot_point'] = (self.df['high'] + self.df['low'] + self.df['close']) / 3
+        self.df['r1'] = (2 * self.df['pivot_point']) - self.df['low']
+        self.df['s1'] = (2 * self.df['pivot_point']) - self.df['high']
+        self.df['r2'] = self.df['pivot_point'] + (self.df['high'] - self.df['low'])
+        self.df['s2'] = self.df['pivot_point'] - (self.df['high'] - self.df['low'])
+        self.df['r3'] = self.df['high'] + 2 * (self.df['pivot_point'] - self.df['low'])
+        self.df['s3'] = self.df['low'] - 2 * (self.df['high'] - self.df['pivot_point'])
 
 
 class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
@@ -157,7 +155,7 @@ def format_message_spikes(*args):
     """
     messages = []
     for data in args:
-        # TODO: Implement a dinamic threshold as for now the values are fixed to 3.5 and 1000
+        # TODO: Implement a dynamic threshold as for now the values are fixed to 3.5 and 1000
         if all([float(data.get('price_change', '0')) < 3.5, float(data.get('volume_change', '0')) < 1000]):
             continue
         message = f"\nSymbol: {data.get('symbol', 'N/A')}\n"

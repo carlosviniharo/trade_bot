@@ -9,7 +9,8 @@ from app.models.trade import (
     AtrData,
     StockChangeRecordRead,
     StockChangeRecordCreate,
-    Message
+    Message,
+    ResistanceSupport
 )
 from app.services.trade_service import (
     create_user,
@@ -19,7 +20,10 @@ from app.services.trade_service import (
     delete_user,
     # create_trade,
     # list_trades,
-    get_atr, create_stock_change_records, list_stock_change_records, send_messages
+    get_atr, create_stock_change_records,
+    list_stock_change_records,
+    send_messages,
+    get_support_resistance_levels
 )
 
 router = APIRouter()
@@ -71,3 +75,12 @@ async def get_atr_by_symbol(symbol: str = Query(...)):
 @router.post("/sendMessage/", response_model=Message)
 async def get_atr_by_symbol(message: Message):
     return await send_messages(message)
+
+@router.get("/support_resistance/", response_model=ResistanceSupport)
+async def get_support_resistance(symbol: str = Query(...)):
+    sup_res = await get_support_resistance_levels(symbol)
+    if sup_res is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"The support and resistance calculation for'{symbol}' did not work")
+    return sup_res

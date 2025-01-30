@@ -1,4 +1,6 @@
 # services/user_service.py
+import asyncio
+
 from bson import ObjectId
 from fastapi import HTTPException
 
@@ -75,14 +77,12 @@ async def get_atr(symbol: str):
         await trade.initialize()
         await trade.get_historical_data(symbol)
         trade.calculate_atr()
-        df = trade.get_df()
     except Exception as e:
         # Raising an HTTPException with a status code and the error message
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
         await trade.close()
-    logger.info(df.to_dict(orient='records')[-1])
-    return df.to_dict(orient='records')[-1]
+    return trade.get_df().to_dict(orient='records')[-1]
 
 async def send_messages(message):
     whastapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
@@ -93,5 +93,22 @@ async def send_messages(message):
     except Exception as e:
         # Raising an HTTPException with a status code and the error message
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-    # finally:
-    #     await whastapp.close()
+
+async def get_support_resistance_levels(symbol: str):
+    trade = BaseVolumeAnalyzer()
+
+    async def run_analysis():
+        try:
+            await trade.initialize()
+            await trade.get_historical_data(symbol)
+            trade.calculate_support_resistance()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        finally:
+            await trade.close()
+
+        return trade.get_df().to_dict(orient='records')[-1]
+
+    # Ensure it runs in the correct event loop
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, asyncio.run, run_analysis())

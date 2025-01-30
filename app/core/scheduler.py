@@ -3,6 +3,15 @@ import sys
 
 from apscheduler.triggers.cron import CronTrigger
 
+# Set the event loop policy for Windows if necessary
+if sys.platform == 'win32':
+    # Check if aiodns is imported, and apply the event loop policy
+    try:
+        import aiodns
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except ImportError:
+        pass
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.database import get_database
 from app.core.logging import AppLogger
@@ -14,8 +23,7 @@ from app.core.config import settings
 # Initialize logging
 logger = AppLogger.get_logger()
 
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 
 async def scheduled_task():
     analyzer = BinanceVolumeAnalyzer()
@@ -29,15 +37,13 @@ async def scheduled_task():
         most_price_change = analyzer.get_best_symbols("price_change")
         most_volume_change = analyzer.get_best_symbols("volume_change")
 
-        sym = [{'symbol': 'MOVE', 'price_change': 3.5574720388087844, 'close': 0.7685},
-               {'symbol': 'ACX', 'price_change': -2.0331030887527635, 'close': 0.7517},
-               {'symbol': 'NULS', 'price_change': -3.8431217973984966, 'close': 0.4879}]
-
-        sym_v = [{'symbol': 'NULS', 'volume_change': 35.93, 'close': 0.4879},
-                 {'symbol': 'ACX', 'volume_change': 17.59, 'close': 0.7517},
-                 {'symbol': 'MOVE', 'volume_change': 16.94, 'close': 0.7685}]
-
-        message = format_message_spikes(*sym, *sym_v)
+        # sym = [{'symbol': 'MOVE', 'price_change': 3.5574720388087844, 'close': 0.7685},
+        #        {'symbol': 'ACX', 'price_change': -2.0331030887527635, 'close': 0.7517},
+        #        {'symbol': 'NULS', 'price_change': -3.8431217973984966, 'close': 0.4879}]
+        #
+        # sym_v = [{'symbol': 'NULS', 'volume_change': 35.93, 'close': 0.4879},
+        #          {'symbol': 'ACX', 'volume_change': 17.59, 'close': 0.7517},
+        #          {'symbol': 'MOVE', 'volume_change': 16.94, 'close': 0.7685}]
 
         if len(most_price_change) > 0 or len(most_volume_change) > 0:
 
@@ -51,6 +57,8 @@ async def scheduled_task():
             # Convert each Pydantic model back to a dictionary before inserting into MongoDB
             await db["stock_change_records"].insert_one(stock_change_record.model_dump())
             logger.info("Trade data inserted")
+
+            message = format_message_spikes(*most_price_change, *most_volume_change)
 
             if message:
                 await whatsapp.send_text_message("447729752680", message)
@@ -66,24 +74,25 @@ async def scheduled_task():
         await analyzer.close()
 
 
-def run_async_task():
-    try:
-        loop = asyncio.get_running_loop()  # Try to get the current running loop
-    except RuntimeError:
-        loop = asyncio.new_event_loop()  # Create a new loop if none exists
-        asyncio.set_event_loop(loop)
-
-        # Run the async task and wait for it to complete
-    loop.run_until_complete(scheduled_task())
+# def run_async_task():
+#     try:
+#         loop = asyncio.get_running_loop()  # Try to get the current running loop
+#     except RuntimeError:
+#         loop = asyncio.new_event_loop()  # Create a new loop if none exists
+#         asyncio.set_event_loop(loop)
+#
+#         # Run the async task and wait for it to complete
+#     loop.run_until_complete(scheduled_task())
 
 # Initialize the scheduler
 scheduler = AsyncIOScheduler()
+loop = asyncio.get_event_loop()
 
 def start_scheduler():
     # Schedule a job to start at 12:07 and then run every 3 minutes
     logger.info("Starting scheduler...")
     trigger = CronTrigger(minute="13,28,43,58")
-    scheduler.add_job(scheduled_task, trigger)
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(scheduled_task(), loop), trigger)
     # scheduler.add_job(scheduled_task, "interval", minutes=2)
     scheduler.start()
 
