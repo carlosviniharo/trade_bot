@@ -52,9 +52,9 @@ COPY . .
 #CMD ["/bin/bash"]
 
 # Use the virtual environment Python for the command
-#CMD ["/venv/bin/python", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/venv/bin/python", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
 
 # Command used for Kubernetes
-CMD ["/venv/bin/python", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "80"]
+#CMD ["/venv/bin/python", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "80"]
 
 

@@ -1,7 +1,5 @@
 import re
 import asyncio
-import sys
-
 import ccxt.async_support as ccxt_async
 import pandas as pd
 import talib as ta
@@ -116,7 +114,7 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
 
         # Concatenate and process results
         self.df_final_values = pd.concat(dataframes, ignore_index=True)
-
+# TODO Please include the option to get a variable number of best and worst coins.
     def get_best_symbols(self, metrics="volume_change"):
         """Return the top 3 symbols based on the given metric"""
         if self.df_final_values.empty:
@@ -156,7 +154,7 @@ def format_message_spikes(*args):
     messages = []
     for data in args:
         # TODO: Implement a dynamic threshold as for now the values are fixed to 3.5 and 1000
-        if all([float(data.get('price_change', '0')) < 3.5, float(data.get('volume_change', '0')) < 1000]):
+        if all([float(data.get('price_change', '0')) < 3.5, float(data.get('volume_change', '0')) < 5000]):
             continue
         message = f"\nSymbol: {data.get('symbol', 'N/A')}\n"
         message += f"Price Change: {data.get('price_change', '0')}%\n"
@@ -165,3 +163,8 @@ def format_message_spikes(*args):
         messages.append(message)
 
     return "\n--------\n".join(messages) if messages else ""
+
+def format_symbol_name(symbol: str) -> str :
+    if re.match(r"^[^/\s\d]*", symbol):
+        return f'{symbol}/USDT:USDT'
+    return ''
