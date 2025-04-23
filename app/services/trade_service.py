@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from app.core.logging import AppLogger
 from app.models.trade import User, UserCreate, StockChangeRecordCreate, StockChangeRecord, StockChangeRecordRead
 from app.core.database import get_database
-from app.utils.helper import BaseVolumeAnalyzer
+from app.utils.helper import BaseVolumeAnalyzer, format_symbol_name
 from app.utils.whatsapp_connector import WhatsAppOutput
 from app.core.config import settings
 # Initialize logging
@@ -73,6 +73,7 @@ async def list_stock_change_records():
 
 async def get_atr(symbol: str):
     trade = BaseVolumeAnalyzer()
+    symbol = format_symbol_name(symbol)
     try:
         await trade.initialize()
         await trade.get_historical_data(symbol)
@@ -94,21 +95,35 @@ async def send_messages(message):
         # Raising an HTTPException with a status code and the error message
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+# async def get_support_resistance_levels(symbol: str):
+#     trade = BaseVolumeAnalyzer()
+#     symbol = format_symbol_name(symbol)
+#     async def run_analysis():
+#         try:
+#             await trade.initialize()
+#             await trade.get_historical_data(symbol)
+#             trade.calculate_support_resistance()
+#         except Exception as e:
+#             raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+#         finally:
+#             await trade.close()
+#
+#         return trade.get_df().to_dict(orient='records')[-1]
+#
+#     # Ensure it runs in the correct event loop
+#     loop = asyncio.get_running_loop()
+#     return await loop.run_in_executor(None, asyncio.run, run_analysis())
+
 async def get_support_resistance_levels(symbol: str):
     trade = BaseVolumeAnalyzer()
+    symbol =  format_symbol_name(symbol)
 
-    async def run_analysis():
-        try:
-            await trade.initialize()
-            await trade.get_historical_data(symbol)
-            trade.calculate_support_resistance()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-        finally:
-            await trade.close()
-
-        return trade.get_df().to_dict(orient='records')[-1]
-
-    # Ensure it runs in the correct event loop
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, asyncio.run, run_analysis())
+    try:
+        await trade.initialize()
+        await trade.get_historical_data(symbol)
+        trade.calculate_support_resistance()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        await trade.close()
+    return trade.get_df().to_dict(orient='records')[-1]
