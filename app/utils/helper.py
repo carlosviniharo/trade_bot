@@ -83,7 +83,7 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         await self.get_historical_data(symbol)
         if self.df is not None and len(self.df) > 1:
             self.df['symbol'] = re.match(r"^[^/ \s]*", symbol).group(0)
-            self.df['price_change'] = ta.ROC(self.df['close'].values, timeperiod=1)
+            self.df['price_change'] = ta.ROC(self.df['close'].values, timeperiod=1).round(2)
             self.df['volume_change'] = ta.ROC(self.df['volume'].values, timeperiod=1).round(2)
 
             self.calculate_atr(self.atr_period)
@@ -128,7 +128,7 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         )
 
         return df_best_symbols[
-            ['symbol', metrics, 'close', ]
+            ['symbol','price_change','volume_change', 'close', ]
         ].to_dict(orient='records')
 
 

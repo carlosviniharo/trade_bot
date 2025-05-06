@@ -19,6 +19,7 @@ class DevelopmentConfig(BaseConfig):
     DEBUG: bool = True
     LOG_LEVEL: str = "DEBUG"
 
+
 class ProductionConfig(BaseConfig):
     """Production-specific configuration."""
     DEBUG: bool = False

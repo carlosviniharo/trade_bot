@@ -22,11 +22,13 @@ def user_helper(user) -> dict:
         "age": user["age"]
     }
 
+
 async def create_user(user_data: UserCreate):
     db = await get_database()
     new_user = await db["users"].insert_one(user_data.model_dump())
     user = await db["users"].find_one({"_id": new_user.inserted_id})
     return user_helper(user)
+
 
 async def get_user(user_id: str):
     db = await get_database()
@@ -35,16 +37,19 @@ async def get_user(user_id: str):
         return user_helper(user)
     return None
 
+
 async def list_users():
     db = await get_database()
     users = await db["users"].find().to_list(1000)
     return [user_helper(user) for user in users]
+
 
 async def update_user(user_id: str, user_data: UserCreate):
     db = await get_database()
     await db["users"].update_one({"_id": ObjectId(user_id)}, {"$set": user_data.model_dump()})
     user = await db["users"].find_one({"_id": ObjectId(user_id)})
     return user_helper(user) if user else None
+
 
 async def delete_user(user_id: str):
     db = await get_database()
@@ -59,6 +64,7 @@ def stock_change_record_helper(stock_change_record) -> StockChangeRecordRead:
         volume_changes=stock_change_record["volume_changes"],
     )
 
+
 async def create_stock_change_records(data_stock_change_record: StockChangeRecordCreate):
     db = await get_database()
     new_stock_change_record = await db["stock_change_records"].insert_one(data_stock_change_record.model_dump())
@@ -70,6 +76,7 @@ async def list_stock_change_records():
     db = await get_database()
     stock_change_records = await db["stock_change_records"].find().to_list(1000)
     return [stock_change_record_helper(stock) for stock in stock_change_records]
+
 
 async def get_atr(symbol: str):
     trade = BaseVolumeAnalyzer()
@@ -85,6 +92,7 @@ async def get_atr(symbol: str):
         await trade.close()
     return trade.get_df().to_dict(orient='records')[-1]
 
+
 async def send_messages(message):
     whastapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
     msg = message.model_dump()
@@ -95,24 +103,6 @@ async def send_messages(message):
         # Raising an HTTPException with a status code and the error message
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-# async def get_support_resistance_levels(symbol: str):
-#     trade = BaseVolumeAnalyzer()
-#     symbol = format_symbol_name(symbol)
-#     async def run_analysis():
-#         try:
-#             await trade.initialize()
-#             await trade.get_historical_data(symbol)
-#             trade.calculate_support_resistance()
-#         except Exception as e:
-#             raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-#         finally:
-#             await trade.close()
-#
-#         return trade.get_df().to_dict(orient='records')[-1]
-#
-#     # Ensure it runs in the correct event loop
-#     loop = asyncio.get_running_loop()
-#     return await loop.run_in_executor(None, asyncio.run, run_analysis())
 
 async def get_support_resistance_levels(symbol: str):
     trade = BaseVolumeAnalyzer()

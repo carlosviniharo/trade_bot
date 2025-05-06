@@ -1,8 +1,6 @@
 # routers/user_router.py
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Query
-
-from app.core import logging
 from app.models.trade import (
     User,
     UserCreate,
@@ -18,8 +16,6 @@ from app.services.trade_service import (
     list_users,
     update_user,
     delete_user,
-    # create_trade,
-    # list_trades,
     get_atr, create_stock_change_records,
     list_stock_change_records,
     send_messages,
@@ -76,7 +72,7 @@ async def get_atr_by_symbol(symbol: str = Query(...)):
 async def get_atr_by_symbol(message: Message):
     return await send_messages(message)
 
-@router.get("/support_resistance/", response_model=ResistanceSupport)
+@router.get("/supportResistance/", response_model=ResistanceSupport)
 async def get_support_resistance(symbol: str = Query(...)):
     sup_res = await get_support_resistance_levels(symbol)
     if sup_res is None:

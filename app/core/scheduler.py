@@ -74,26 +74,15 @@ async def scheduled_task():
         await analyzer.close()
 
 
-# def run_async_task():
-#     try:
-#         loop = asyncio.get_running_loop()  # Try to get the current running loop
-#     except RuntimeError:
-#         loop = asyncio.new_event_loop()  # Create a new loop if none exists
-#         asyncio.set_event_loop(loop)
-#
-#         # Run the async task and wait for it to complete
-#     loop.run_until_complete(scheduled_task())
-
-# Initialize the scheduler
 scheduler = AsyncIOScheduler()
-loop = asyncio.get_event_loop()
+# loop = asyncio.get_event_loop()
 
 def start_scheduler():
     # Schedule a job to start at 12:07 and then run every 3 minutes
     logger.info("Starting scheduler...")
     trigger = CronTrigger(minute="13,28,43,58")
-    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(scheduled_task(), loop), trigger)
-    # scheduler.add_job(scheduled_task, "interval", minutes=2)
+    scheduler.add_job(scheduled_task, trigger)
+    # scheduler.add_job(scheduled_task, "interval", minutes=2)x
     scheduler.start()
 
 def shutdown_scheduler():

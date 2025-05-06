@@ -1,7 +1,4 @@
-import os
-
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic_settings import BaseSettings
 from app.core.config import settings
 
 

@@ -38,26 +38,6 @@ class StockChangeRecordCreate(StockChangeRecord):
 class StockChangeRecordRead(StockChangeRecord):
     id: str
 
-# class TradeData(BaseModel):
-#     symbol: str
-#     volume_change: float
-#     price_change: float
-#     close: float
-#     # r1: float
-#     # s1: float
-#     # r2: float
-#     # s2: float
-#     # r3: float
-#     # s3: float
-#
-#     def update_modification_date(self):
-#         self.date_of_modification = datetime.now(timezone.utc)
-#
-# class TradeCreate(TradeData):
-#     pass
-#
-# class Trade(TradeData):
-#     id: str
 
 class AtrData(BaseModel):
     timestamp: datetime
