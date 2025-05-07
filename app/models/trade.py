@@ -20,7 +20,9 @@ class SymbolChange(BaseModel):
     symbol: str
     price_change: Optional[float] = None
     volume_change: Optional[float] = None
+    atr_pct: Optional[float] = None
     close: float
+
 
 # Define the StockChangeRecord model
 class StockChangeRecord(BaseModel):
@@ -46,8 +48,8 @@ class AtrData(BaseModel):
     low: float
     close: float
     volume: float
-    ATR: float
-    percentageATR: float
+    atr: float
+    atr_pct: float
 
 class Message(BaseModel):
     message: str

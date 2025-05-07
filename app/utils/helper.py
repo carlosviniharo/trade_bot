@@ -1,11 +1,16 @@
 import re
 import asyncio
+import traceback
 import ccxt.async_support as ccxt_async
 import pandas as pd
 import talib as ta
 from datetime import datetime, timedelta, timezone
+from app.core.logging import AppLogger
 
 MIN_PRICE_CHANGE = 2
+
+# Initialize logging
+logger = AppLogger.get_logger()
 
 # if sys.platform == 'win32':
 #     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -52,8 +57,8 @@ class BaseVolumeAnalyzer:
             self.df = pd.DataFrame()
 
     def calculate_atr(self, period=14):
-        self.df['ATR'] = ta.ATR(self.df['high'], self.df['low'], self.df['close'], timeperiod=period)
-        self.df['percentageATR'] = (self.df['ATR'] / self.df['close']) * 100
+        self.df['atr'] = ta.ATR(self.df['high'], self.df['low'], self.df['close'], timeperiod=period)
+        self.df['atr_pct'] = (self.df['atr'] / self.df['close']) * 100
 
     def get_df(self):
         """Getter method to retrieve the DataFrame"""
@@ -82,22 +87,21 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         """Process individual symbol data"""
         await self.get_historical_data(symbol)
         if self.df is not None and len(self.df) > 1:
-            self.df['symbol'] = re.match(r"^[^/ \s]*", symbol).group(0)
-            self.df['price_change'] = ta.ROC(self.df['close'].values, timeperiod=1).round(2)
-            self.df['volume_change'] = ta.ROC(self.df['volume'].values, timeperiod=1).round(2)
-
             self.calculate_atr(self.atr_period)
-
-            if abs(self.df['price_change'].iloc[-1]) > min(self.df['percentageATR'].iloc[-1], MIN_PRICE_CHANGE):
-                # self.df['ema_9'] = ta.EMA(self.df['close'].values, timeperiod=9)
-                return self.df.iloc[[-1]]
-        return None
+            df = self.df.copy()
+            match = re.match(r"^[^/ \s]*", symbol)
+            df['symbol'] = match.group(0) if match else symbol
+            df['price_change'] = ta.ROC(df['close'].values, timeperiod=1)
+            df['volume_change'] = ta.ROC(df['volume'].values, timeperiod=1)
+            return df.iloc[[-1]]
+        return pd.DataFrame()
 
     async def calculate_market_spikes(self):
         """Calculate volume changes and return top 3 results"""
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
 
+        dataframes = []
         tickers = await self.get_futures_tickers()
 
         # Filter USDT pairs
@@ -106,14 +110,21 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         tasks = [self.process_symbol(symbol) for symbol in usdt_pairs]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Collect successful DataFrame results
-        dataframes = [result for result in results if isinstance(result, pd.DataFrame)]
+        for symbol, result in zip(usdt_pairs, results):
+            if isinstance(result, Exception):
+                logger.warning(f"[{symbol}] Task failed: {type(result).__name__} - {result}")
+                logger.debug(traceback.format_exc())
+                continue
+            if isinstance(result, pd.DataFrame) and not result.empty:
+                dataframes.append(result)
 
         if not dataframes:
+            logger.info("No significant volume changes detected.")
             raise RuntimeWarning("No significant volume changes at the moment")
 
         # Concatenate and process results
         self.df_final_values = pd.concat(dataframes, ignore_index=True)
+
 # TODO Please include the option to get a variable number of best and worst coins.
     def get_best_symbols(self, metrics="volume_change"):
         """Return the top 3 symbols based on the given metric"""
@@ -128,7 +139,7 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         )
 
         return df_best_symbols[
-            ['symbol','price_change','volume_change', 'close', ]
+            ['symbol','price_change','volume_change','atr_pct', 'close', ]
         ].to_dict(orient='records')
 
 
@@ -143,6 +154,7 @@ def format_message_spikes(*args):
                - 'symbol' (str): The symbol of the asset (e.g., "BTCUSD").
                - 'price_change' (float or str): The percentage price change.
                - 'volume_change' (float or str): The percentage volume change.
+               - 'atr_pct' (float or str): The percentage of volatility using Average True Range.
                - 'close' (float or str): The closing price.
 
     Returns:
@@ -157,9 +169,10 @@ def format_message_spikes(*args):
         if all([float(data.get('price_change', '0')) < 3.5, float(data.get('volume_change', '0')) < 5000]):
             continue
         message = f"\nSymbol: {data.get('symbol', 'N/A')}\n"
-        message += f"Price Change: {data.get('price_change', '0')}%\n"
-        message += f"Volume Change: {data.get('volume_change', '0')}%\n"
-        message += f"Close Price: {data.get('close', '0')}\n"
+        message += f"Price Change: {float(data.get('price_change', 0)):.2f}%\n"
+        message += f"Volume Change: {float(data.get('volume_change', 0)):.2f}%\n"
+        message += f"ATR Percentage: {float(data.get('atr_pct', '0')):.2f}%\n"
+        message += f"Close Price: {data.get('close', 0)}\n"
         messages.append(message)
 
     return "\n--------\n".join(messages) if messages else ""

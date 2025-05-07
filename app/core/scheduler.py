@@ -23,8 +23,6 @@ from app.core.config import settings
 # Initialize logging
 logger = AppLogger.get_logger()
 
-
-
 async def scheduled_task():
     analyzer = BinanceVolumeAnalyzer()
 
@@ -81,8 +79,9 @@ def start_scheduler():
     # Schedule a job to start at 12:07 and then run every 3 minutes
     logger.info("Starting scheduler...")
     trigger = CronTrigger(minute="13,28,43,58")
+    # trigger = CronTrigger(minute="*/2")
     scheduler.add_job(scheduled_task, trigger)
-    # scheduler.add_job(scheduled_task, "interval", minutes=2)x
+    # scheduler.add_job(scheduled_task, "interval", minutes=2)
     scheduler.start()
 
 def shutdown_scheduler():
