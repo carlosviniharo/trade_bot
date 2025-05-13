@@ -1,12 +1,15 @@
-import re
 import asyncio
+import re
 import traceback
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List, Dict
+
+import requests
 import ccxt.async_support as ccxt_async
 import pandas as pd
 import talib as ta
-from datetime import datetime, timedelta, timezone
-from app.core.logging import AppLogger
 
+from app.core.logging import AppLogger
 MIN_PRICE_CHANGE = 2
 
 # Initialize logging
@@ -159,14 +162,13 @@ def format_message_spikes(*args):
 
     Returns:
         str: A formatted string containing all the messages that meet the
-             filtering criteria, separated by lines. If both price change
-             is less than 3.5% and volume change is less than 1000,
-             the message is skipped.
+             filtering criteria, separated by lines.
     """
+    args = {dict(t) for t in {tuple(d.items()) for d in args}}
     messages = []
     for data in args:
         # TODO: Implement a dynamic threshold as for now the values are fixed to 3.5 and 1000
-        if all([float(data.get('price_change', '0')) < 3.5, float(data.get('volume_change', '0')) < 5000]):
+        if all([float(data.get('price_change', '0')) < 3.5, float(data.get('volume_change', '0')) < 2000]):
             continue
         message = f"\nSymbol: {data.get('symbol', 'N/A')}\n"
         message += f"Price Change: {float(data.get('price_change', 0)):.2f}%\n"
@@ -181,3 +183,65 @@ def format_symbol_name(symbol: str) -> str :
     if re.match(r"^[^/\s\d]*", symbol):
         return f'{symbol}/USDT:USDT'
     return ''
+
+
+class MarketSentimentAnalyzer:
+    """
+    MarketSentimentAnalyzer encapsulates logic to retrieve and analyze
+    cryptocurrency market sentiment based on 24h price changes weighted by market cap.
+    """
+
+    _COINGECKO_API_URL = "https://api.coingecko.com/api/v3/coins/markets"
+    _STABLECOINS = {"usdt", "usdc", "busd", "dai", "tusd", "usdp"}
+    _DEFAULT_PARAMS = {
+        "vs_currency": "usd",
+        "order": "market_cap_desc",
+        "per_page": 250,
+        "page": 1
+    }
+
+    def __init__(self, now_provider=datetime.now):
+        self._now = now_provider
+
+    def fetch_market_data(self) -> Optional[List[Dict]]:
+        try:
+            response = requests.get(self._COINGECKO_API_URL, params=self._DEFAULT_PARAMS, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            print(f"[ERROR] Unable to fetch market data: {e}")
+            return None
+
+    def calculate_weighted_sentiment(self, market_data: List[Dict]) -> Optional[float]:
+        total_market_cap = 0.0
+        weighted_change_sum = 0.0
+
+        for coin in market_data:
+            symbol = coin.get("symbol", "").lower()
+            market_cap = coin.get("market_cap")
+            change_24h = coin.get("price_change_percentage_24h")
+
+            if not symbol or market_cap is None or change_24h is None or symbol in self._STABLECOINS:
+                continue
+
+            total_market_cap += market_cap
+            weighted_change_sum += market_cap * change_24h
+
+        if total_market_cap == 0:
+            return None
+
+        return weighted_change_sum / total_market_cap
+
+    def render_report(self, sentiment_score: Optional[float]) -> str:
+        timestamp = self._now().isoformat(sep=' ', timespec='seconds')
+        report = "\n--- Market Sentiment Report ---"
+        report += f"\nTimestamp: {timestamp}"
+
+        if sentiment_score is None:
+            report += "\n[INFO] Insufficient data to determine market sentiment."
+            return report
+
+        trend_label = "🚀🌕 Bullish" if sentiment_score > 0 else "⚠️ Bearish"
+        report += f"\nOverall Market Sentiment (24h): {sentiment_score:.2f}%"
+        report += f"\nMarket Sentiment: {trend_label}"
+        return report
