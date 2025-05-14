@@ -164,20 +164,36 @@ def format_message_spikes(*args):
         str: A formatted string containing all the messages that meet the
              filtering criteria, separated by lines.
     """
-    args = {dict(t) for t in {tuple(d.items()) for d in args}}
-    messages = []
-    for data in args:
-        # TODO: Implement a dynamic threshold as for now the values are fixed to 3.5 and 1000
-        if all([float(data.get('price_change', '0')) < 3.5, float(data.get('volume_change', '0')) < 2000]):
+    seen = set()
+    messages = "\n--------\n"
+    for raw in args:
+        key = frozenset(sorted(raw.items()))
+        if key in seen:
             continue
-        message = f"\nSymbol: {data.get('symbol', 'N/A')}\n"
-        message += f"Price Change: {float(data.get('price_change', 0)):.2f}%\n"
-        message += f"Volume Change: {float(data.get('volume_change', 0)):.2f}%\n"
-        message += f"ATR Percentage: {float(data.get('atr_pct', '0')):.2f}%\n"
-        message += f"Close Price: {data.get('close', 0)}\n"
-        messages.append(message)
+        seen.add(key)
 
-    return "\n--------\n".join(messages) if messages else ""
+        try:
+            price_change = float(raw.get('price_change', 0))
+            volume_change = float(raw.get('volume_change', 0))
+            atr_pct = float(raw.get('atr_pct', 0))
+            close = float(raw.get('close', 0))
+        except ValueError:
+            continue
+
+        if price_change < 3.5 and volume_change < 2000:
+            continue
+
+        message = (
+            f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
+            f"Price Change: {price_change:.2f}%\n"
+            f"Volume Change: {volume_change:.2f}%\n"
+            f"ATR Percentage: {atr_pct:.2f}%\n"
+            f"Close Price: {close}"
+            f"\n--------\n"
+        )
+        messages += message
+
+    return messages
 
 def format_symbol_name(symbol: str) -> str :
     if re.match(r"^[^/\s\d]*", symbol):
