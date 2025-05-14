@@ -165,7 +165,7 @@ def format_message_spikes(*args):
              filtering criteria, separated by lines.
     """
     seen = set()
-    messages = "\n--------\n"
+    messages = ""
     for raw in args:
         key = frozenset(sorted(raw.items()))
         if key in seen:
@@ -189,7 +189,7 @@ def format_message_spikes(*args):
             f"Volume Change: {volume_change:.2f}%\n"
             f"ATR Percentage: {atr_pct:.2f}%\n"
             f"Close Price: {close}"
-            f"\n--------\n"
+            f"--------\n"
         )
         messages += message
 
