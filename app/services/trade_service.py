@@ -5,9 +5,10 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from app.core.logging import AppLogger
-from app.models.trade import User, UserCreate, StockChangeRecordCreate, StockChangeRecord, StockChangeRecordRead
+from app.models.trade import User, UserCreate, StockChangeRecordCreate, StockChangeRecord, StockChangeRecordRead, \
+    MarketSentiment, ResistanceSupport
 from app.core.database import get_database
-from app.utils.helper import BaseVolumeAnalyzer, format_symbol_name
+from app.utils.helper import BaseVolumeAnalyzer, format_symbol_name, MarketSentimentAnalyzer
 from app.utils.whatsapp_connector import WhatsAppOutput
 from app.core.config import settings
 # Initialize logging
@@ -77,7 +78,7 @@ async def list_stock_change_records():
     stock_change_records = await db["stock_change_records"].find().to_list(1000)
     return [stock_change_record_helper(stock) for stock in stock_change_records]
 
-
+# TODO: Add the return model of atr instead of a dict
 async def get_atr(symbol: str):
     trade = BaseVolumeAnalyzer()
     symbol = format_symbol_name(symbol)
@@ -116,4 +117,27 @@ async def get_support_resistance_levels(symbol: str):
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
         await trade.close()
-    return trade.get_df().to_dict(orient='records')[-1]
+    sup_res_resp = trade.get_df().iloc[-1]
+    return ResistanceSupport(
+        close=sup_res_resp["close"],
+        pivot_point=sup_res_resp["pivot_point"],
+        r1=sup_res_resp["r1"],
+        s1=sup_res_resp["s1"],
+        r2=sup_res_resp["r2"],
+        s2=sup_res_resp["s2"],
+        r3=sup_res_resp["r3"],
+        s3=sup_res_resp["s3"]
+    )
+
+
+async def get_market_sentiment():
+    analyzer = MarketSentimentAnalyzer()
+    try:
+        market_data = analyzer.fetch_market_data()
+        sentiment_score = analyzer.calculate_weighted_sentiment(market_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    return MarketSentiment(
+        report=analyzer.render_report(sentiment_score)
+    )
+

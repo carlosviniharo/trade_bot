@@ -64,3 +64,6 @@ class ResistanceSupport(BaseModel):
     s2: float
     r3: float
     s3: float
+
+class MarketSentiment(BaseModel):
+    report: str

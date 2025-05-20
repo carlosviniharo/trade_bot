@@ -188,7 +188,7 @@ def format_message_spikes(*args):
             f"Price Change: {price_change:.2f}%\n"
             f"Volume Change: {volume_change:.2f}%\n"
             f"ATR Percentage: {atr_pct:.2f}%\n"
-            f"Close Price: {close}"
+            f"Close Price: {close}\n"
             f"--------\n"
         )
         messages += message

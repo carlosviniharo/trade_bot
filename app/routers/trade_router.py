@@ -8,7 +8,7 @@ from app.models.trade import (
     StockChangeRecordRead,
     StockChangeRecordCreate,
     Message,
-    ResistanceSupport
+    ResistanceSupport, MarketSentiment
 )
 from app.services.trade_service import (
     create_user,
@@ -19,7 +19,8 @@ from app.services.trade_service import (
     get_atr, create_stock_change_records,
     list_stock_change_records,
     send_messages,
-    get_support_resistance_levels
+    get_support_resistance_levels,
+    get_market_sentiment
 )
 
 router = APIRouter()
@@ -80,3 +81,12 @@ async def get_support_resistance(symbol: str = Query(...)):
             status_code=404,
             detail=f"The support and resistance calculation for'{symbol}' did not work")
     return sup_res
+
+@router.get("/marketSentiment/", response_model=MarketSentiment)
+async def fetch_market_sentiment():
+    sentiment = await get_market_sentiment()
+    if sentiment is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"The market sentiment calculation did not work")
+    return sentiment
