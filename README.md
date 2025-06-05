@@ -8,7 +8,7 @@ This is a microservice to extract high changes in the volume of the coins listed
 docker run -d -p 27017:27017 --name mongo mongo
 ```
 
-## How to run the project in you local docker environment.
+## How to run the project in your local docker environment.
 1. Clone the repository.
 2. Run the following command to build the docker image.
 ```bash

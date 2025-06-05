@@ -8,6 +8,7 @@ import requests
 import ccxt.async_support as ccxt_async
 import pandas as pd
 import talib as ta
+from fastapi import Query
 
 from app.core.logging import AppLogger
 MIN_PRICE_CHANGE = 2
@@ -261,3 +262,16 @@ class MarketSentimentAnalyzer:
         report += f"\nOverall Market Sentiment (24h): {sentiment_score:.2f}%"
         report += f"\nMarket Sentiment: {trend_label}"
         return report
+
+class PaginationParams:
+    def __init__(
+            self,
+            page: int = Query(1, ge=1),
+            limit: int = Query(10, ge=1, le=100)
+    ):
+        self.page = page
+        self.limit = limit
+
+    @property
+    def skip(self) -> int:
+        return (self.page - 1) * self.limit

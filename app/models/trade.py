@@ -1,8 +1,9 @@
 # models/user.py
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, TypeVar, Generic
 
+T = TypeVar("T")
 
 class UserBase(BaseModel):
     name: str
@@ -67,3 +68,9 @@ class ResistanceSupport(BaseModel):
 
 class MarketSentiment(BaseModel):
     report: str
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    total: int
+    page: int
+    limit: int
+    items: List[T]

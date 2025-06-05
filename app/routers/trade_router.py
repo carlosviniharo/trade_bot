@@ -1,6 +1,6 @@
 # routers/user_router.py
 from fastapi import APIRouter, HTTPException
-from fastapi.params import Query
+from fastapi.params import Query, Depends
 from app.models.trade import (
     User,
     UserCreate,
@@ -8,7 +8,9 @@ from app.models.trade import (
     StockChangeRecordRead,
     StockChangeRecordCreate,
     Message,
-    ResistanceSupport, MarketSentiment
+    ResistanceSupport,
+    MarketSentiment,
+    PaginatedResponse
 )
 from app.services.trade_service import (
     create_user,
@@ -22,6 +24,7 @@ from app.services.trade_service import (
     get_support_resistance_levels,
     get_market_sentiment
 )
+from app.utils.helper import PaginationParams
 
 router = APIRouter()
 
@@ -58,9 +61,9 @@ async def delete_user_by_id(user_id: str):
 async def create_new_stock_change_records(stock_change_record: StockChangeRecordCreate):
     return await create_stock_change_records(stock_change_record)
 
-@router.get("/stockChangeRecord/", response_model=list[StockChangeRecordRead])
-async def get_list_stock_change_records():
-    return await list_stock_change_records()
+@router.get("/stockChangeRecord/", response_model=PaginatedResponse)
+async def get_list_stock_change_records(params: PaginationParams = Depends()):
+    return await list_stock_change_records(params)
 
 @router.get("/getAtrBySymbol/", response_model=AtrData)
 async def get_atr_by_symbol(symbol: str = Query(...)):

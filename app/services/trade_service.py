@@ -6,11 +6,12 @@ from fastapi import HTTPException
 
 from app.core.logging import AppLogger
 from app.models.trade import User, UserCreate, StockChangeRecordCreate, StockChangeRecord, StockChangeRecordRead, \
-    MarketSentiment, ResistanceSupport
+    MarketSentiment, ResistanceSupport, PaginatedResponse
 from app.core.database import get_database
-from app.utils.helper import BaseVolumeAnalyzer, format_symbol_name, MarketSentimentAnalyzer
+from app.utils.helper import BaseVolumeAnalyzer, format_symbol_name, MarketSentimentAnalyzer, PaginationParams
 from app.utils.whatsapp_connector import WhatsAppOutput
 from app.core.config import settings
+
 # Initialize logging
 logger = AppLogger.get_logger()
 
@@ -73,10 +74,26 @@ async def create_stock_change_records(data_stock_change_record: StockChangeRecor
     return stock_change_record_helper(stock_change_record)
 
 
-async def list_stock_change_records():
+async def list_stock_change_records(params: PaginationParams):
     db = await get_database()
-    stock_change_records = await db["stock_change_records"].find().to_list(1000)
-    return [stock_change_record_helper(stock) for stock in stock_change_records]
+    # stock_change_records = await db["stock_change_records"].find().to_list(1000)
+    # return [stock_change_record_helper(stock) for stock in stock_change_records]
+    stock_change_records = db["stock_change_records"]
+
+    total = await stock_change_records.count_documents({})
+    cursor = (
+        stock_change_records.find()
+        .skip(params.skip)
+        .limit(params.limit)
+    )
+    items = [stock_change_record_helper(stock) async for stock in cursor]
+
+    return PaginatedResponse(
+        total=total,
+        page=params.page,
+        limit=params.limit,
+        items=items
+    )
 
 # TODO: Add the return model of atr instead of a dict
 async def get_atr(symbol: str):
