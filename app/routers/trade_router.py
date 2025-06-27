@@ -22,7 +22,7 @@ from app.services.trade_service import (
     list_stock_change_records,
     send_messages,
     get_support_resistance_levels,
-    get_market_sentiment
+    get_market_sentiment, send_messages_tg
 )
 from app.utils.helper import PaginationParams
 
@@ -72,9 +72,14 @@ async def get_atr_by_symbol(symbol: str = Query(...)):
         raise HTTPException(status_code=404, detail=f"ATR data for symbol '{symbol}' not found")
     return atr
 
-@router.post("/sendMessage/", response_model=Message)
-async def get_atr_by_symbol(message: Message):
+@router.post("/sendMessageWP/", response_model=Message)
+async def send_wp_message(message: Message):
     return await send_messages(message)
+
+@router.post("/sendMessageTG/", response_model=Message)
+async def send_tg_message(message: Message):
+    return await send_messages_tg(message)
+
 
 @router.get("/supportResistance/", response_model=ResistanceSupport)
 async def get_support_resistance(symbol: str = Query(...)):

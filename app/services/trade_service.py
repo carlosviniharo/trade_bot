@@ -11,6 +11,7 @@ from app.core.database import get_database
 from app.utils.helper import BaseVolumeAnalyzer, format_symbol_name, MarketSentimentAnalyzer, PaginationParams
 from app.utils.whatsapp_connector import WhatsAppOutput
 from app.core.config import settings
+from app.utils.telegram_connector import TelegramOutput
 
 # Initialize logging
 logger = AppLogger.get_logger()
@@ -112,15 +113,28 @@ async def get_atr(symbol: str):
 
 
 async def send_messages(message):
-    whastapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
+    whatsapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
     msg = message.model_dump()
     try:
-        await whastapp.send_text_message("447729752680", msg["message"])
-        return {"message": "Message sent successfully", "success": True}
+        await whatsapp.send_text_message("447729752680", msg["message"])
     except Exception as e:
         # Raising an HTTPException with a status code and the error message
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    return {"message": "Message sent successfully", "success": True}
 
+
+async def send_messages_tg(message):
+    telegram = TelegramOutput(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
+    msg = message.model_dump()
+    try:
+        await telegram.send_text_message(msg["message"])
+    except Exception as e:
+        logger.exception(f"Failed to send message to Telegram: {e}")
+        raise HTTPException(status_code=502, detail=f"Telegram delivery failed: {str(e)}")
+    finally:
+        await telegram.close()
+
+    return {"success": True, "message": "Message successfully delivered to Telegram"}
 
 async def get_support_resistance_levels(symbol: str):
     trade = BaseVolumeAnalyzer()

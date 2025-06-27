@@ -54,7 +54,9 @@ class WhatsAppOutput:
             }
         }
         response = requests.post(self.api_url, headers=headers, data=json.dumps(data))
-        logger.debug(f"WhatsApp API response: {response.status_code}, {response.text}")
+        if response.status_code != 200:
+            logger.error(f"Failed to send message: {response.text}")
+            raise Exception(f"WhatsApp API error: {response.status_code} - {response.text}")
 
     async def send_batch_messages(self, recipient_messages: List[Dict[Text, Any]]) -> None:
         """Sends a batch of messages to multiple recipients.

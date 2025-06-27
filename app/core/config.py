@@ -12,6 +12,8 @@ class BaseConfig:
     LOG_LEVEL: str = "INFO"
     WHATSAPP_TOKEN: str = os.getenv("WHATSAPP_TOKEN")
     PHONE_NUMBER_ID: str = os.getenv("PHONE_NUMBER_ID")
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN")
+    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID")
 
 
 class DevelopmentConfig(BaseConfig):

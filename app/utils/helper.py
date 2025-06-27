@@ -43,7 +43,7 @@ class BaseVolumeAnalyzer:
                 self.exchange = None
 
     async def get_futures_tickers(self):
-        """Fetch all futures tickers"""
+        """Fetch all future tickers"""
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
         return await self.exchange.fetch_tickers()
