@@ -37,13 +37,6 @@ async def scheduled_task():
         less_price_change = analyzer.get_top_symbols(metric="price_change", ascending=False)
         most_volume_change = analyzer.get_top_symbols(metric="volume_change")
 
-        # sym = [{'symbol': 'MOVE', 'price_change': 3.5574720388087844, 'close': 0.7685},
-        #        {'symbol': 'ACX', 'price_change': -2.0331030887527635, 'close': 0.7517},
-        #        {'symbol': 'NULS', 'price_change': -3.8431217973984966, 'close': 0.4879}]
-        #
-        # sym_v = [{'symbol': 'NULS', 'volume_change': 35.93, 'close': 0.4879},
-        #          {'symbol': 'ACX', 'volume_change': 17.59, 'close': 0.7517},
-        #          {'symbol': 'MOVE', 'volume_change': 16.94, 'close': 0.7685}]
 
         if len(most_price_change) > 0 or len(most_volume_change) > 0:
 
@@ -59,7 +52,7 @@ async def scheduled_task():
             await db["stock_change_records"].insert_one(stock_change_record.model_dump())
             logger.info("Trade data inserted")
 
-            message = format_message_spikes(*most_price_change, *most_volume_change)
+            message = format_message_spikes(*most_price_change, *most_volume_change, *less_price_change)
 
             if message:
                 # await whatsapp.send_text_message("447729752680", message)

@@ -16,9 +16,9 @@ Classes:
 
 from fastapi import HTTPException
 import httpx
-from typing import Text, Dict, Any, Callable, List
+from typing import Text, Dict, Any, Callable, List, Optional
 
-# TODO: include webhook support for TelegramInput and TelegramOutput, so there is not need to
+# TODO: Include webhook support for TelegramInput and TelegramOutput, so there is not need to
 #  include the chat ID in the constructors.
 class TelegramOutput:
     """
@@ -32,6 +32,13 @@ class TelegramOutput:
     """
 
     def __init__(self, bot_token: Text, chat_id: Text) -> None:
+        """
+        Initialize TelegramOutput with bot token and chat ID.
+
+        Args:
+            bot_token (Text): Bot access token for authentication.
+            chat_id (Text): Target Telegram chat ID to send messages to.
+        """
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.api_url = f"https://api.telegram.org/bot{bot_token}"
@@ -120,6 +127,14 @@ class TelegramInput:
     """
 
     def __init__(self, bot_token: Text, agent_handler: Callable[[Text, Text], Text]) -> None:
+        """
+        Initialize TelegramInput with bot token and agent handler.
+
+        Args:
+            bot_token (Text): Bot access token for authentication.
+            agent_handler (Callable[[Text, Text], Text]): Callback function that takes
+                sender ID and text message, returns a text response.
+        """
         self.output = TelegramOutput(bot_token, "")  # Chat ID can be set dynamically
         self.agent_handler = agent_handler
 
