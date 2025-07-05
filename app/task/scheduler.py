@@ -1,6 +1,6 @@
 import asyncio
 import sys
-
+from fastapi import HTTPException
 from apscheduler.triggers.cron import CronTrigger
 
 # Set the event loop policy for Windows if necessary
@@ -18,6 +18,7 @@ from app.core.logging import AppLogger
 from app.models.trade import StockChangeRecordCreate
 from app.utils.helper import BinanceVolumeAnalyzer, format_message_spikes
 from app.utils.whatsapp_connector import WhatsAppOutput
+from app.utils.telegram_connector import TelegramOutput
 from app.core.config import settings
 
 # Initialize logging
@@ -32,8 +33,9 @@ async def scheduled_task():
 
         await analyzer.initialize()
         await analyzer.calculate_market_spikes()
-        most_price_change = analyzer.get_best_symbols("price_change")
-        most_volume_change = analyzer.get_best_symbols("volume_change")
+        most_price_change = analyzer.get_top_symbols(metric="price_change")
+        less_price_change = analyzer.get_top_symbols(metric="price_change", ascending=False)
+        most_volume_change = analyzer.get_top_symbols(metric="volume_change")
 
         # sym = [{'symbol': 'MOVE', 'price_change': 3.5574720388087844, 'close': 0.7685},
         #        {'symbol': 'ACX', 'price_change': -2.0331030887527635, 'close': 0.7517},
@@ -45,7 +47,8 @@ async def scheduled_task():
 
         if len(most_price_change) > 0 or len(most_volume_change) > 0:
 
-            whatsapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
+            # whatsapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
+            telegram = TelegramOutput(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
 
             # Validate each item and create a list of Pydantic models
             stock_change_record = StockChangeRecordCreate(
@@ -59,8 +62,14 @@ async def scheduled_task():
             message = format_message_spikes(*most_price_change, *most_volume_change)
 
             if message:
-                await whatsapp.send_text_message("447729752680", message)
-
+                # await whatsapp.send_text_message("447729752680", message)
+                try:
+                    await telegram.send_text_message(message)
+                except Exception as e:
+                    logger.exception(f"Failed to send message to Telegram: {e}")
+                    raise HTTPException(status_code=502, detail=f"Telegram delivery failed: {str(e)}")
+                finally:
+                    await telegram.close()
         else:
             logger.info("No trade data to insert")
 

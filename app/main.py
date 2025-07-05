@@ -1,9 +1,9 @@
 import asyncio
 import sys
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from app.core.scheduler import start_scheduler, shutdown_scheduler
+from app.task.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import trade_router
 from app.core.database import Database
 from app.core.logging import AppLogger

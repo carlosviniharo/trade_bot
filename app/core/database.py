@@ -28,6 +28,7 @@ class Database:
         await cls.db[collection_name].insert_one(initial_document)
 
 
+
 # MongoDB dependency
 async def get_database():
     return Database.db

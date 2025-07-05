@@ -130,15 +130,15 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         self.df_final_values = pd.concat(dataframes, ignore_index=True)
 
 # TODO Please include the option to get a variable number of best and worst coins.
-    def get_best_symbols(self, metrics="volume_change"):
+    def get_top_symbols(self, metric="volume_change", ascending=True, limit=3):
         """Return the top 3 symbols based on the given metric"""
         if self.df_final_values.empty:
             return []
 
         df_best_symbols = (
             self.df_final_values
-            .sort_values(by=metrics, ascending=False)
-            .head(3)
+            .sort_values(by=metric, ascending=ascending)
+            .head(limit)
             .reset_index(drop=True)
         )
 
@@ -150,7 +150,7 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
 def format_message_spikes(*args):
     """
     Formats message data from multiple dictionaries, filtering out messages
-    where both price change is less than 3.5% and volume change is less than 1000.
+    where both price changes are less than 3.5% and volume change is less than 1000.
 
     Args:
         *args: Variable number of dictionaries containing message data.
@@ -181,7 +181,7 @@ def format_message_spikes(*args):
         except ValueError:
             continue
 
-        if price_change < 3.5 and volume_change < 2000:
+        if price_change < 3 and volume_change < 5000:
             continue
 
         message = (
@@ -197,8 +197,8 @@ def format_message_spikes(*args):
     return messages
 
 def format_symbol_name(symbol: str) -> str :
-    if re.match(r"^[^/\s\d]*", symbol):
-        return f'{symbol}/USDT:USDT'
+    if re.match(r"^[^/\s\d]*", symbol, re.IGNORECASE):
+        return f'{symbol.upper()}/USDT:USDT'
     return ''
 
 
