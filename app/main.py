@@ -48,5 +48,3 @@ async def read_root():
 
 # Include routers
 app.include_router(market_routers.router)
-
-

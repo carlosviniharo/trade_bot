@@ -1,44 +1,41 @@
-import os
-from dotenv import load_dotenv
+from pydantic import BaseSettings
+from typing import Optional
 
-# Load environment variables from the .env file
-load_dotenv()
-
-class BaseConfig:
-    """Base configuration shared by all environments."""
+class AppSettings(BaseSettings):
     APP_NAME: str = "Trade Bot"
-    MONGODB_URI: str = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-    MONGODB_NAME: str = os.getenv("MONGODB_NAME", "mydatabase")
+    MONGODB_URI: str = "mongodb://localhost:27017"
+    MONGODB_NAME: str = "mydatabase"
     LOG_LEVEL: str = "INFO"
-    WHATSAPP_TOKEN: str = os.getenv("WHATSAPP_TOKEN")
-    PHONE_NUMBER_ID: str = os.getenv("PHONE_NUMBER_ID")
-    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN")
-    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID")
+    WHATSAPP_TOKEN: Optional[str] = None
+    PHONE_NUMBER_ID: Optional[str] = None
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_CHAT_ID: Optional[str] = None
+    DEBUG: bool = False
 
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
 
-class DevelopmentConfig(BaseConfig):
-    """Development-specific configuration."""
+class DevelopmentSettings(AppSettings):
     DEBUG: bool = True
     LOG_LEVEL: str = "DEBUG"
 
-
-class ProductionConfig(BaseConfig):
-    """Production-specific configuration."""
+class ProductionSettings(AppSettings):
     DEBUG: bool = False
     LOG_LEVEL: str = "WARNING"
 
-def get_config():
+def get_settings():
     """
-    Factory function to select the appropriate configuration
+    Factory function to select the appropriate settings
     based on the ENV environment variable.
     """
-    env = os.getenv("ENV", "development")
+    from os import getenv
+    env = getenv("ENV", "development")
     if env == "development":
-        return DevelopmentConfig()
+        return DevelopmentSettings()
     elif env == "production":
-        return ProductionConfig()
+        return ProductionSettings()
     else:
         raise ValueError(f"Unknown environment: {env}")
 
-# Singleton configuration instance
-settings = get_config()
+settings = get_settings()

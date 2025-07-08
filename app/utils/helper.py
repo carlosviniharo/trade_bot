@@ -330,3 +330,4 @@ class PaginationParams:
     def skip(self) -> int:
         """Calculate skip value for pagination."""
         return (self.page - 1) * self.limit
+    
