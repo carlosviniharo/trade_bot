@@ -17,30 +17,24 @@ class User(UserBase):
     id: str
 
 
-class SymbolChange(BaseModel):
+class MarketEvent(BaseModel):
     symbol: str
-    price_change: Optional[float] = None
-    volume_change: Optional[float] = None
-    atr_pct: Optional[float] = None
+    event_timestamp: datetime
+    is_price_event: bool = False
+    is_volume_event: bool = False
+    price_change: Optional[float] = 0
+    volume_change: Optional[float] = 0
+    atr_pct: Optional[float] = 0
     close: float
-
-
-# Define the StockChangeRecord model
-class StockChangeRecord(BaseModel):
-    price_changes: Optional[List[SymbolChange]] = []
-    volume_changes: Optional[List[SymbolChange]] = []
     date_of_creation: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     date_of_modification: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def update_modification_date(self):
-        self.date_of_modification = datetime.now(timezone.utc)
-
-class StockChangeRecordCreate(StockChangeRecord):
+class MarketEventCreate(MarketEvent):
     pass
 
-class StockChangeRecordRead(StockChangeRecord):
+class MarketEventRead(MarketEvent):
     id: str
-
+    
 
 class AtrData(BaseModel):
     timestamp: datetime

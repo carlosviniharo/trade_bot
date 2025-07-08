@@ -5,10 +5,24 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from app.core.logging import AppLogger
-from app.models.trade import User, UserCreate, StockChangeRecordCreate, StockChangeRecord, StockChangeRecordRead, \
-    MarketSentiment, ResistanceSupport, PaginatedResponse
+from app.models.market_models import (
+    User, 
+    UserCreate, 
+    MarketEvent, 
+    MarketEventCreate, 
+    MarketEventRead, 
+    MarketSentiment,
+    ResistanceSupport, 
+    PaginatedResponse,
+    AtrData
+    )
 from app.core.database import get_database
-from app.utils.helper import BaseVolumeAnalyzer, format_symbol_name, MarketSentimentAnalyzer, PaginationParams
+from app.utils.helper import (
+    BaseVolumeAnalyzer, 
+    MarketSentimentAnalyzer, 
+    PaginationParams, 
+    format_symbol_name
+    )
 from app.utils.whatsapp_connector import WhatsAppOutput
 from app.core.config import settings
 from app.utils.telegram_connector import TelegramOutput
@@ -60,34 +74,40 @@ async def delete_user(user_id: str):
     return result.deleted_count
 
 
-def stock_change_record_helper(stock_change_record) -> StockChangeRecordRead:
-    return StockChangeRecordRead(
-        id=str(stock_change_record["_id"]),
-        price_changes=stock_change_record["price_changes"],
-        volume_changes=stock_change_record["volume_changes"],
+def market_events_helper(market_event_record) -> MarketEventRead:
+    return MarketEventRead(
+        id=str(market_event_record["_id"]),
+        symbol=market_event_record["symbol"],
+        event_timestamp=market_event_record["event_timestamp"],
+        is_price_event=market_event_record["is_price_event"],
+        is_volume_event=market_event_record["is_volume_event"],
+        price_change=market_event_record["price_change"],
+        volume_change=market_event_record["volume_change"],
+        atr_pct=market_event_record["atr_pct"],
+        close=market_event_record["close"],
+        date_of_creation=market_event_record["date_of_creation"],
+        date_of_modification=market_event_record["date_of_modification"]
     )
 
 
-async def create_stock_change_records(data_stock_change_record: StockChangeRecordCreate):
+async def create_market_event(market_event: MarketEventCreate):
     db = await get_database()
-    new_stock_change_record = await db["stock_change_records"].insert_one(data_stock_change_record.model_dump())
-    stock_change_record = await db["stock_change_records"].find_one({"_id": new_stock_change_record.inserted_id})
-    return stock_change_record_helper(stock_change_record)
+    new_market_event = await db["market_events"].insert_one(market_event.model_dump())
+    record = await db["market_events"].find_one({"_id": new_market_event.inserted_id})
+    return market_events_helper(record)
 
 
-async def list_stock_change_records(params: PaginationParams):
+async def list_market_events(params: PaginationParams):
     db = await get_database()
-    # stock_change_records = await db["stock_change_records"].find().to_list(1000)
-    # return [stock_change_record_helper(stock) for stock in stock_change_records]
-    stock_change_records = db["stock_change_records"]
+    market_events_collection = db["market_events"]
 
-    total = await stock_change_records.count_documents({})
+    total = await market_events_collection.count_documents({})
     cursor = (
-        stock_change_records.find()
+        market_events_collection.find()
         .skip(params.skip)
         .limit(params.limit)
     )
-    items = [stock_change_record_helper(stock) async for stock in cursor]
+    items = [market_events_helper(event) async for event in cursor]
 
     return PaginatedResponse(
         total=total,
@@ -96,20 +116,23 @@ async def list_stock_change_records(params: PaginationParams):
         items=items
     )
 
-# TODO: Add the return model of atr instead of a dict
-async def get_atr(symbol: str):
-    trade = BaseVolumeAnalyzer()
+
+async def get_atr(symbol: str) -> AtrData:
+    analyzer = BaseVolumeAnalyzer()
     symbol = format_symbol_name(symbol)
     try:
-        await trade.initialize()
-        await trade.get_historical_data(symbol)
-        trade.calculate_atr()
+        await analyzer.initialize()
+        await analyzer.get_historical_data(symbol)
+        analyzer.calculate_atr()
+        df = analyzer.get_df()
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No ATR data found for symbol '{symbol}'")
+        atr_data_dict = df.iloc[-1].to_dict()
+        return AtrData(**atr_data_dict)
     except Exception as e:
-        # Raising an HTTPException with a status code and the error message
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
-        await trade.close()
-    return trade.get_df().to_dict(orient='records')[-1]
+        await analyzer.close()
 
 
 async def send_messages(message):
@@ -136,39 +159,32 @@ async def send_messages_tg(message):
 
     return {"success": True, "message": "Message successfully delivered to Telegram"}
 
-async def get_support_resistance_levels(symbol: str):
-    trade = BaseVolumeAnalyzer()
-    symbol =  format_symbol_name(symbol)
+
+async def get_support_resistance_levels(symbol: str) -> ResistanceSupport:
+    analyzer = BaseVolumeAnalyzer()
+    symbol = format_symbol_name(symbol)
 
     try:
-        await trade.initialize()
-        await trade.get_historical_data(symbol)
-        trade.calculate_support_resistance()
+        await analyzer.initialize()
+        await analyzer.get_historical_data(symbol)
+        analyzer.calculate_support_resistance()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
-        await trade.close()
-    sup_res_resp = trade.get_df().iloc[-1]
-    return ResistanceSupport(
-        close=sup_res_resp["close"],
-        pivot_point=sup_res_resp["pivot_point"],
-        r1=sup_res_resp["r1"],
-        s1=sup_res_resp["s1"],
-        r2=sup_res_resp["r2"],
-        s2=sup_res_resp["s2"],
-        r3=sup_res_resp["r3"],
-        s3=sup_res_resp["s3"]
-    )
+        await analyzer.close()
+    sup_res_resp = analyzer.get_df().iloc[-1].to_dict()
+    return ResistanceSupport(**sup_res_resp)
 
 
-async def get_market_sentiment():
+async def get_market_sentiment() -> MarketSentiment:
     analyzer = MarketSentimentAnalyzer()
     try:
         market_data = analyzer.fetch_market_data()
         sentiment_score = analyzer.calculate_weighted_sentiment(market_data)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
     return MarketSentiment(
         report=analyzer.render_report(sentiment_score)
-    )
-
+        )

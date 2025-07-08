@@ -4,7 +4,7 @@ import sys
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.task.scheduler import start_scheduler, shutdown_scheduler
-from app.routers import trade_router
+from app.routers import market_routers
 from app.core.database import Database
 from app.core.logging import AppLogger
 
@@ -47,6 +47,6 @@ async def read_root():
 
 
 # Include routers
-app.include_router(trade_router.router)
+app.include_router(market_routers.router)
 
 

@@ -1,25 +1,26 @@
 # routers/user_router.py
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Query, Depends
-from app.models.trade import (
+from app.models.market_models import (
     User,
     UserCreate,
     AtrData,
-    StockChangeRecordRead,
-    StockChangeRecordCreate,
+    MarketEvent,
+    MarketEventCreate,
     Message,
     ResistanceSupport,
     MarketSentiment,
     PaginatedResponse
 )
-from app.services.trade_service import (
+from app.services.market_services import (
     create_user,
     get_user,
     list_users,
     update_user,
     delete_user,
-    get_atr, create_stock_change_records,
-    list_stock_change_records,
+    get_atr, 
+    create_market_event,
+    list_market_events,
     send_messages,
     get_support_resistance_levels,
     get_market_sentiment, send_messages_tg
@@ -57,13 +58,13 @@ async def delete_user_by_id(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted"}
 
-@router.post("/stockChangeRecord/", response_model=StockChangeRecordRead)
-async def create_new_stock_change_records(stock_change_record: StockChangeRecordCreate):
-    return await create_stock_change_records(stock_change_record)
+@router.post("/marketEvents/", response_model=MarketEvent)
+async def create_new_market_event(market_event: MarketEventCreate):
+    return await create_market_event(market_event)
 
-@router.get("/stockChangeRecord/", response_model=PaginatedResponse)
-async def get_list_stock_change_records(params: PaginationParams = Depends()):
-    return await list_stock_change_records(params)
+@router.get("/marketEvents/", response_model=PaginatedResponse)
+async def get_list_market_events(params: PaginationParams = Depends()) -> PaginatedResponse:
+    return await list_market_events(params)
 
 @router.get("/getAtrBySymbol/", response_model=AtrData)
 async def get_atr_by_symbol(symbol: str = Query(...)):

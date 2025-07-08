@@ -68,7 +68,7 @@ class BaseVolumeAnalyzer:
         ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe='15m', since=self.since)
         if ohlcv:
             self.df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'], unit='ms')
+            self.df['event_timestamp'] = pd.to_datetime(self.df['timestamp'], unit='ms')
         else:
             self.df = pd.DataFrame()
 
@@ -153,21 +153,45 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         self.df_final_values = pd.concat(dataframes, ignore_index=True)
 
 # TODO Please include the option to get a variable number of best and worst coins.
-    def get_top_symbols(self, metric: str = "volume_change", ascending: bool = True, limit: int = 3) -> List[Dict[str, Any]]:
-        """Return the top symbols based on the given metric."""
+    def get_top_symbols(
+        self, 
+        metric: str = "volume_change", 
+        ascending: bool = True, 
+        limit: int = 3
+    ) -> list[dict[str, Any]]:
+        """
+        Return the top symbols based on the given metric.
+
+        Improvements:
+        - Handles missing/invalid metric gracefully.
+        - Adds event flags per record, not to the whole result.
+        - Avoids mutating the result structure in a way that breaks list-of-dict contract.
+        - Ensures only valid columns are selected.
+        - Returns an empty list if metric is not present.
+        """
         if self.df_final_values.empty:
             return []
 
-        df_best_symbols = (
+        if metric not in self.df_final_values.columns:
+            logger.warning(f"Metric '{metric}' not found in DataFrame columns.")
+            return []
+
+        # Select only the relevant columns that exist in the DataFrame
+        self.df_final_values = self.df_final_values[['symbol', 'event_timestamp', 'price_change', 'volume_change', 'atr_pct', 'close']]
+
+        df_sorted = (
             self.df_final_values
             .sort_values(by=metric, ascending=ascending)
             .head(limit)
             .reset_index(drop=True)
         )
 
-        return df_best_symbols[
-            ['symbol','price_change','volume_change','atr_pct', 'close', ]
-        ].to_dict(orient='records')
+        if metric == "price_change":
+            df_sorted["is_price_event"] = True
+        elif metric == "volume_change":
+            df_sorted["is_volume_event"] = True
+
+        return df_sorted.to_dict(orient='records')
 
 
 def format_message_spikes(*args: Dict[str, Any]) -> str:

@@ -3,6 +3,8 @@ import sys
 from fastapi import HTTPException
 from apscheduler.triggers.cron import CronTrigger
 
+from app.models.market_models import MarketEvent
+
 # Set the event loop policy for Windows if necessary
 if sys.platform == 'win32':
     # Check if aiodns is imported, and apply the event loop policy
@@ -15,7 +17,6 @@ if sys.platform == 'win32':
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.database import get_database
 from app.core.logging import AppLogger
-from app.models.trade import StockChangeRecordCreate
 from app.utils.helper import BinanceVolumeAnalyzer, format_message_spikes
 from app.utils.whatsapp_connector import WhatsAppOutput
 from app.utils.telegram_connector import TelegramOutput
@@ -33,39 +34,55 @@ async def scheduled_task():
 
         await analyzer.initialize()
         await analyzer.calculate_market_spikes()
-        most_price_change = analyzer.get_top_symbols(metric="price_change")
-        less_price_change = analyzer.get_top_symbols(metric="price_change", ascending=False)
-        most_volume_change = analyzer.get_top_symbols(metric="volume_change")
 
+        top_price_increase = analyzer.get_top_symbols(metric="price_change")
+        top_price_decrease = analyzer.get_top_symbols(metric="price_change", ascending=False)
+        top_volume_change = analyzer.get_top_symbols(metric="volume_change")
 
-        if len(most_price_change) > 0 or len(most_volume_change) > 0:
-
-            # whatsapp = WhatsAppOutput(settings.WHATSAPP_TOKEN, settings.PHONE_NUMBER_ID)
+        if any([top_price_increase, top_price_decrease, top_volume_change]):
             telegram = TelegramOutput(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
 
-            # Validate each item and create a list of Pydantic models
-            stock_change_record = StockChangeRecordCreate(
-                price_changes=most_price_change,
-                volume_changes=most_volume_change
-            )
-            # Convert each Pydantic model back to a dictionary before inserting into MongoDB
-            await db["stock_change_records"].insert_one(stock_change_record.model_dump())
-            logger.info("Trade data inserted")
+            # Prepare event dictionaries
+            top_price_increase_v = [MarketEvent(**event).model_dump() for event in top_price_increase]
+            top_price_decrease_v = [MarketEvent(**event).model_dump() for event in top_price_decrease]
+            top_volume_change_v = [MarketEvent(**event).model_dump() for event in top_volume_change]
 
-            message = format_message_spikes(*most_price_change, *most_volume_change, *less_price_change)
+            # Insert non-empty lists and log
+            if top_price_increase_v:
+                await db["market_events"].insert_many(top_price_increase_v)
+                logger.info(f"Inserted {len(top_price_increase_v)} positive price change records.")
+            else:
+                logger.info("No positive price change records to insert.")
+
+            if top_price_decrease_v:
+                await db["market_events"].insert_many(top_price_decrease_v)
+                logger.info(f"Inserted {len(top_price_decrease_v)} negative price change records.")
+            else:
+                logger.info("No negative price change records to insert.")
+
+            if top_volume_change_v:
+                await db["market_events"].insert_many(top_volume_change_v)
+                logger.info(f"Inserted {len(top_volume_change_v)} volume change records.")
+            else:
+                logger.info("No volume change records to insert.")
+
+            # Combine all for message formatting
+            message = format_message_spikes(
+                *top_price_increase, *top_price_decrease, *top_volume_change
+            )
 
             if message:
-                # await whatsapp.send_text_message("447729752680", message)
                 try:
                     await telegram.send_text_message(message)
                 except Exception as e:
                     logger.exception(f"Failed to send message to Telegram: {e}")
-                    raise HTTPException(status_code=502, detail=f"Telegram delivery failed: {str(e)}")
+                    raise HTTPException(
+                        status_code=502, detail=f"Telegram delivery failed: {str(e)}"
+                    )
                 finally:
                     await telegram.close()
         else:
             logger.info("No trade data to insert")
-
     except Exception as e:
 
         logger.error(f"An error occurred: {e}")
@@ -78,12 +95,10 @@ scheduler = AsyncIOScheduler()
 # loop = asyncio.get_event_loop()
 
 def start_scheduler():
-    # Schedule a job to start at 12:07 and then run every 3 minutes
     logger.info("Starting scheduler...")
     trigger = CronTrigger(minute="13,28,43,58")
     # trigger = CronTrigger(minute="*/2")
     scheduler.add_job(scheduled_task, trigger)
-    # scheduler.add_job(scheduled_task, "interval", minutes=2)
     scheduler.start()
 
 def shutdown_scheduler():
