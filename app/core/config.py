@@ -1,7 +1,8 @@
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 from typing import Optional
 
 class AppSettings(BaseSettings):
+    ENV: str = "development" 
     APP_NAME: str = "Trade Bot"
     MONGODB_URI: str = "mongodb://localhost:27017"
     MONGODB_NAME: str = "mydatabase"
@@ -12,9 +13,10 @@ class AppSettings(BaseSettings):
     TELEGRAM_CHAT_ID: Optional[str] = None
     DEBUG: bool = False
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8"
+    }
 
 class DevelopmentSettings(AppSettings):
     DEBUG: bool = True
