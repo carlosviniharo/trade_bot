@@ -9,6 +9,7 @@ services:
       - .env
     networks:
       - web
+    restart: always
 
   nginx:
     build: ./nginx
@@ -21,6 +22,7 @@ services:
       - fastapi_app
     networks:
       - web
+    restart: always
 
 networks:
   web:

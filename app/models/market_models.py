@@ -68,3 +68,10 @@ class PaginatedResponse(BaseModel, Generic[T]):
     page: int
     limit: int
     items: List[T]
+
+class XGBoostPredictionResult(BaseModel):
+    message: str
+    time_frame: str
+    prediction_confidence: float
+    latest_predicted_resistance: float
+    latest_predicted_support: float

@@ -10,7 +10,8 @@ from app.models.market_models import (
     Message,
     ResistanceSupport,
     MarketSentiment,
-    PaginatedResponse
+    PaginatedResponse,
+    XGBoostPredictionResult
 )
 from app.services.market_services import (
     create_user,
@@ -23,7 +24,8 @@ from app.services.market_services import (
     list_market_events,
     send_messages,
     get_support_resistance_levels,
-    get_market_sentiment, send_messages_tg
+    get_market_sentiment, send_messages_tg,
+    get_xgboosr_prediction
 )
 from app.utils.helper import PaginationParams
 
@@ -99,3 +101,15 @@ async def fetch_market_sentiment():
             status_code=404,
             detail=f"The market sentiment calculation did not work")
     return sentiment
+
+@router.get("/xgboostPrediction/", response_model=XGBoostPredictionResult)
+async def get_xgboost_prediction(symbol: str = Query(...), time_frame: str = Query(...)):
+    """
+    Get XGBoost-based support and resistance prediction for a given symbol.
+    """
+    pred = await get_xgboosr_prediction(symbol, time_frame)
+    if pred is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"The support and resistance calculation for'{symbol}' did not work")
+    return pred

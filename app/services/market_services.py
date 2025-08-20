@@ -14,13 +14,15 @@ from app.models.market_models import (
     MarketSentiment,
     ResistanceSupport, 
     PaginatedResponse,
-    AtrData
+    AtrData,
+    XGBoostPredictionResult
     )
 from app.core.database import get_database
 from app.utils.helper import (
-    BaseVolumeAnalyzer, 
+    BaseAnalyzer, 
     MarketSentimentAnalyzer, 
-    PaginationParams, 
+    PaginationParams,
+    XGBoostSupportResistancePredictor, 
     format_symbol_name
     )
 from app.utils.whatsapp_connector import WhatsAppOutput
@@ -118,7 +120,7 @@ async def list_market_events(params: PaginationParams):
 
 
 async def get_atr(symbol: str) -> AtrData:
-    analyzer = BaseVolumeAnalyzer()
+    analyzer = BaseAnalyzer()
     symbol = format_symbol_name(symbol)
     try:
         await analyzer.initialize()
@@ -161,7 +163,7 @@ async def send_messages_tg(message):
 
 
 async def get_support_resistance_levels(symbol: str) -> ResistanceSupport:
-    analyzer = BaseVolumeAnalyzer()
+    analyzer = BaseAnalyzer()
     symbol = format_symbol_name(symbol)
 
     try:
@@ -188,3 +190,19 @@ async def get_market_sentiment() -> MarketSentiment:
     return MarketSentiment(
         report=analyzer.render_report(sentiment_score)
         )
+
+async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredictionResult:
+    analyzer = XGBoostSupportResistancePredictor(timeframe=time_frame)
+    symbol = format_symbol_name(symbol)
+
+    try:
+        await analyzer.initialize()
+        await analyzer.get_historical_data(symbol)
+        analyzer.add_technical_indicators()
+        analyzer.generate_targets()
+        response = analyzer.train_xgb_models()
+        return XGBoostPredictionResult(**response)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        await analyzer.close()

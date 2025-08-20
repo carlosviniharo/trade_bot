@@ -2,37 +2,66 @@ import asyncio
 import re
 import traceback
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Callable, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
-import requests
-import ccxt.async_support as ccxt_async
+import numpy as np
 import pandas as pd
+import requests
 import talib as ta
 from fastapi import Query
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
+from xgboost import XGBRegressor
 
+import ccxt.async_support as ccxt_async
 from app.core.logging import AppLogger
-MIN_PRICE_CHANGE = 2
 
+MIN_PRICE_CHANGE = 3
+MIN_VOLUME_CHANGE = 5000
+## The time limit should be calcuated dimanically based on the timeframe.
+## For example, if the timeframe is 15m, the limit should be 96.
+## If the timeframe is 1h, the limit should be 24.
+## If the timeframe is 4h, the limit should be 6.
+## If the timeframe is 1d, the limit should be 1.
+SINCE_24H_AGO_LIMIT = 96
 # Initialize logging
 logger = AppLogger.get_logger()
 
 # if sys.platform == 'win32':
 #     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-class BaseVolumeAnalyzer:
+class BaseAnalyzer:
     """Base class for volume analysis with technical indicators."""
     
-    def __init__(self, atr_period: int = 14) -> None:
-        self.atr_period = atr_period
-        self.since = int((datetime.now(timezone.utc) - timedelta(days=1)).timestamp() * 1000)
+    def __init__(
+            self, 
+            exchange_id: str = "binance", 
+            timeframe: str = '15m', 
+            limit: int = SINCE_24H_AGO_LIMIT,
+            ) -> None:
+        self.limit = limit
         self.exchange = None
+        self.exchange_id = exchange_id
+        self.timeframe = timeframe
         self.df = pd.DataFrame()
 
     async def initialize(self) -> None:
         """Initialize the Binance futures exchange."""
-        self.exchange = ccxt_async.binance({
-            'options': {'defaultType': 'future'}
-        })
+
+        if self.exchange_id == "binance":
+            self.exchange = ccxt_async.binance({
+                'options': {'defaultType': 'future'}
+            })
+        elif self.exchange_id == "bybit":
+            self.exchange = ccxt_async.bybit({
+                'options': {'defaultType': 'future'}
+            })
+        elif self.exchange_id == "okx":
+            self.exchange = ccxt_async.okx({
+                'options': {'defaultType': 'future'}
+            })
+        else:
+            raise ValueError(f"Invalid exchange ID: {self.exchange_id}")
 
     async def close(self) -> None:
         """Properly close the exchange connection."""
@@ -65,16 +94,17 @@ class BaseVolumeAnalyzer:
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
 
-        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe='15m', since=self.since)
+        ohlcv = await self.exchange.fetch_ohlcv(symbol, self.timeframe, limit=self.limit)
         if ohlcv:
             self.df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             self.df['event_timestamp'] = pd.to_datetime(self.df['timestamp'], unit='ms')
+
         else:
             self.df = pd.DataFrame()
 
-    def calculate_atr(self, period: int = 14) -> None:
+    def calculate_atr(self, window: int = 14) -> None:
         """Calculate Average True Range (ATR) indicator."""
-        self.df['atr'] = ta.ATR(self.df['high'], self.df['low'], self.df['close'], timeperiod=period)
+        self.df['atr'] = ta.ATR(self.df['high'], self.df['low'], self.df['close'], timeperiod=window)
         self.df['atr_pct'] = (self.df['atr'] / self.df['close']) * 100
 
     def get_df(self) -> pd.DataFrame:
@@ -88,34 +118,34 @@ class BaseVolumeAnalyzer:
             raise ValueError("DataFrame is empty. Please call get_historical_data first.")
         return self.df
 
-    def calculate_support_resistance(self) -> None:
-        """Calculate support and resistance levels."""
-        self.df['pivot_point'] = (self.df['high'] + self.df['low'] + self.df['close']) / 3
-        self.df['r1'] = (2 * self.df['pivot_point']) - self.df['low']
-        self.df['s1'] = (2 * self.df['pivot_point']) - self.df['high']
-        self.df['r2'] = self.df['pivot_point'] + (self.df['high'] - self.df['low'])
-        self.df['s2'] = self.df['pivot_point'] - (self.df['high'] - self.df['low'])
-        self.df['r3'] = self.df['high'] + 2 * (self.df['pivot_point'] - self.df['low'])
-        self.df['s3'] = self.df['low'] - 2 * (self.df['high'] - self.df['pivot_point'])
+    # def calculate_support_resistance(self) -> None:
+    #     """Calculate support and resistance levels."""
+    #     self.df['pivot_point'] = (self.df['high'] + self.df['low'] + self.df['close']) / 3
+    #     self.df['r1'] = (2 * self.df['pivot_point']) - self.df['low']
+    #     self.df['s1'] = (2 * self.df['pivot_point']) - self.df['high']
+    #     self.df['r2'] = self.df['pivot_point'] + (self.df['high'] - self.df['low'])
+    #     self.df['s2'] = self.df['pivot_point'] - (self.df['high'] - self.df['low'])
+    #     self.df['r3'] = self.df['high'] + 2 * (self.df['pivot_point'] - self.df['low'])
+    #     self.df['s3'] = self.df['low'] - 2 * (self.df['high'] - self.df['pivot_point'])
 
 
-class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
+class BinanceVolumeAnalyzer(BaseAnalyzer):
     """Extended volume analyzer for Binance with market spike detection."""
 
-    def __init__(self, atr_period: int = 14) -> None:
-        super().__init__(atr_period)
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
         self.df_final_values = pd.DataFrame()
 
-    async def process_symbol(self, symbol: str) -> pd.DataFrame:
+    async def process_symbol(self, symbol: str, window: int = 1) -> pd.DataFrame:
         """Process individual symbol data."""
         await self.get_historical_data(symbol)
         if self.df is not None and len(self.df) > 1:
-            self.calculate_atr(self.atr_period)
+            self.calculate_atr()
             df = self.df.copy()
             match = re.match(r"^[^/ \s]*", symbol)
             df['symbol'] = match.group(0) if match else symbol
-            df['price_change'] = ta.ROC(df['close'].values, timeperiod=1)
-            df['volume_change'] = ta.ROC(df['volume'].values, timeperiod=1)
+            df['price_change'] = ta.ROC(df['close'].values, timeperiod=window)
+            df['volume_change'] = ta.ROC(df['volume'].values, timeperiod=window)
             return df.iloc[[-1]]
         return pd.DataFrame()
 
@@ -152,12 +182,12 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         # Combine all processed DataFrames into one for further use
         self.df_final_values = pd.concat(dataframes, ignore_index=True)
 
-# TODO Please include the option to get a variable number of best and worst coins.
+
     def get_top_symbols(
         self, 
         metric: str = "volume_change", 
         ascending: bool = True, 
-        limit: int = 3
+        n_values: int = 3
     ) -> list[dict[str, Any]]:
         """
         Return the top symbols based on the given metric.
@@ -182,7 +212,7 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         df_sorted = (
             self.df_final_values
             .sort_values(by=metric, ascending=ascending)
-            .head(limit)
+            .head(n_values)
             .reset_index(drop=True)
         )
 
@@ -194,61 +224,150 @@ class BinanceVolumeAnalyzer(BaseVolumeAnalyzer):
         return df_sorted.to_dict(orient='records')
 
 
-def format_message_spikes(*args: Dict[str, Any]) -> str:
+class XGBoostSupportResistancePredictor(BaseAnalyzer):
     """
-    Formats message data from multiple dictionaries, filtering out messages
-    where both price changes are less than 3.5% and volume change is less than 1000.
-
-    Args:
-        *args: Variable number of dictionaries containing message data.
-               Each dictionary should have the following keys:
-               - 'symbol' (str): The symbol of the asset (e.g., "BTCUSD").
-               - 'price_change' (float or str): The percentage price change.
-               - 'volume_change' (float or str): The percentage volume change.
-               - 'atr_pct' (float or str): The percentage of volatility using Average True Range.
-               - 'close' (float or str): The closing price.
-
-    Returns:
-        str: A formatted string containing all the messages that meet the
-             filtering criteria, separated by lines.
+    XGBoostSupportResistancePredictor uses XGBoost machine learning to predict
+    cryptocurrency support and resistance levels using technical indicators.
     """
-    seen = set()
-    messages = ""
-    for raw in args:
-        key = frozenset(sorted(raw.items()))
-        if key in seen:
-            continue
-        seen.add(key)
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.df_final = pd.DataFrame()
 
-        try:
-            price_change = float(raw.get('price_change', 0))
-            volume_change = float(raw.get('volume_change', 0))
-            atr_pct = float(raw.get('atr_pct', 0))
-            close = float(raw.get('close', 0))
-        except ValueError:
-            continue
+    async def get_historical_data(self, symbol: str) -> None:
+        ohlcv = await self.exchange.fetch_ohlcv(symbol, self.timeframe, limit=self.limit)
+        if ohlcv:
+            self.df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            self.df['event_timestamp'] = pd.to_datetime(self.df['timestamp'], unit='ms')
+            self.df.set_index("timestamp", inplace=True)
+        else:
+            self.df = pd.DataFrame()
+        
+# TODO: Include a exception for first run this methods in order to train the model.
+    def add_technical_indicators(self):
+        """
+        Add technical indicators to the dataframe.
+        """
+        self.df_final = self.df.copy()
+        close = self.df_final["close"].values
+        high = self.df_final["high"].values
+        low = self.df_final["low"].values
 
-        if abs(price_change) < 3 and volume_change < 5000:
-            continue
+        # RSI
+        self.df_final["rsi"] = ta.RSI(close, timeperiod=14)
+        # ATR
+        self.df_final["atr"] = ta.ATR(high, low, close, timeperiod=14)
 
-        # Use Telegram-compatible HTML formatting (no <hr />, only supported tags)
-        message = (
-            f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
-            f"Price Change: {price_change:.2f}%\n"
-            f"Volume Change: {volume_change:.2f}%\n"
-            f"ATR Percentage: {atr_pct:.2f}%\n"
-            f"Close Price: {close}\n"
-            f"──────────────"
+        # EMA20 and EMA50
+        self.df_final["ema20"] = ta.EMA(close, timeperiod=20)
+        self.df_final["ema50"] = ta.EMA(close, timeperiod=50)
+        # Bollinger Bands
+        self.df_final["bb_high"], _, self.df_final["bb_low"] = ta.BBANDS(close, timeperiod=20)
+        self.df_final.dropna(inplace=True)
+    
+    def generate_targets(self, window=10):
+
+        self.df_final["future_max"] = self.df_final["high"].rolling(window).max().shift(-window)
+        self.df_final["future_min"] = self.df_final["low"].rolling(window).min().shift(-window)
+        # Fill NaNs with current high/low to avoid dropping rows
+        self.df_final["future_max"] = self.df_final["future_max"].fillna(self.df_final["high"])
+        self.df_final["future_min"] = self.df_final["future_min"].fillna(self.df_final["low"])
+        logger.debug(self.df_final)
+        self.df_final.dropna(inplace=True)
+    
+    @staticmethod
+    def estimate_best_hyperparameters(X, y):
+        """
+        Estimate the best hyperparameters for the XGBoost model.
+        """
+        param_grid = {
+            'n_estimators': [100, 200, 300, 400, 500],
+            'max_depth': [3, 5],
+            'learning_rate': [0.01, 0.05]
+        }
+        tscv = TimeSeriesSplit(n_splits=5)
+        grid = GridSearchCV(
+            XGBRegressor(random_state=42),
+            param_grid, 
+            cv=tscv,
+            scoring='neg_root_mean_squared_error', 
+            verbose=0, 
+            n_jobs=-1
         )
-        messages += message
+        grid.fit(X, y)
+        return grid.best_params_
 
-    return messages
+    @staticmethod
+    def evaluate_with_timeseries_cv(X, y_high, y_low):
+        tscv = TimeSeriesSplit(n_splits=5)
+        high_rmse_scores = []
+        low_rmse_scores = []
 
-def format_symbol_name(symbol: str) -> str:
-    """Format symbol name for trading."""
-    if re.match(r"^[^/\s\d]*", symbol, re.IGNORECASE):
-        return f'{symbol.upper()}/USDT:USDT'
-    return ''
+        for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
+            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+            y_high_train, y_high_test = y_high.iloc[train_idx], y_high.iloc[test_idx]
+            y_low_train, y_low_test = y_low.iloc[train_idx], y_low.iloc[test_idx]
+
+            xgb_high = XGBRegressor(n_estimators=500, max_depth=5, learning_rate=0.05, random_state=42)
+            xgb_low = XGBRegressor(n_estimators=500, max_depth=5, learning_rate=0.05, random_state=42)
+
+            xgb_high.fit(X_train, y_high_train, eval_set=[(X_test, y_high_test)], verbose=False)
+            xgb_low.fit(X_train, y_low_train, eval_set=[(X_test, y_low_test)], verbose=False)
+
+            y_high_pred = xgb_high.predict(X_test)
+            y_low_pred = xgb_low.predict(X_test)
+
+            rmse_high = np.sqrt(mean_squared_error(y_high_test, y_high_pred))
+            rmse_low = np.sqrt(mean_squared_error(y_low_test, y_low_pred))
+
+            high_rmse_scores.append(rmse_high)
+            low_rmse_scores.append(rmse_low)
+
+            logger.debug(f"\n--- Fold {fold + 1} ---")
+            logger.debug(f"Resistance RMSE: {rmse_high:.4f} | Support RMSE: {rmse_low:.4f}")
+
+        logger.debug("\n--- Average Results ---")
+        logger.debug(f"Average Resistance RMSE: {np.mean(high_rmse_scores):.4f}")
+        logger.debug(f"Average Support RMSE: {np.mean(low_rmse_scores):.4f}")
+
+    def train_xgb_models(self):
+        features = ["close", "rsi", "atr", "ema20", "ema50", "bb_high", "bb_low"]
+        X = self.df_final[features]
+        y_high = self.df_final["future_max"]
+        y_low = self.df_final["future_min"]
+
+        # self.evaluate_with_timeseries_cv(X, y_high, y_low)
+
+        logger.debug("\n--- Estimating Best Hyperparameters ---")
+        best_params_high = self.estimate_best_hyperparameters(X, y_high)
+        best_params_low = self.estimate_best_hyperparameters(X, y_low)
+        logger.debug(f"Best Params (Resistance): {best_params_high}")
+        logger.debug(f"Best Params (Support): {best_params_low}")
+
+        xgb_high_final = XGBRegressor(**best_params_high, random_state=42)
+        xgb_low_final = XGBRegressor(**best_params_low, random_state=42)
+
+        xgb_high_final.fit(X, y_high)
+        xgb_low_final.fit(X, y_low)
+
+        latest_X = X.iloc[[-1]]
+        latest_resistance = xgb_high_final.predict(latest_X)[0]
+        latest_support = xgb_low_final.predict(latest_X)[0]
+
+        # Calculate prediction confidence based on model uncertainty
+        # Notice that it is assumed that when atr == prediction_range
+        # the confidence is 80%, then the scaling factor would be 20.
+
+        atr_value = latest_X["atr"].iloc[-1]
+        prediction_range = latest_resistance - latest_support
+        confidence = min(100, max(0, 100 - (prediction_range / atr_value) * 20))
+
+        return {
+            "message": "Final Model Live Prediction",
+            "time_frame": self.timeframe,
+            "prediction_confidence": round(confidence, 1),
+            "latest_predicted_resistance": round(latest_resistance, 4),
+            "latest_predicted_support": round(latest_support, 4)
+        }
 
 
 class MarketSentimentAnalyzer:
@@ -315,6 +434,7 @@ class MarketSentimentAnalyzer:
         report += f"\nMarket Sentiment: {trend_label}"
         return report
 
+
 class PaginationParams:
     """Pagination parameters for API endpoints."""
     
@@ -330,4 +450,67 @@ class PaginationParams:
     def skip(self) -> int:
         """Calculate skip value for pagination."""
         return (self.page - 1) * self.limit
+
+###############################################################################
+# Utility functions for miscellaneous or supporting tasks unrelated to the core
+# business logic. These may include helpers for formatting, validation, or
+# other general-purpose operations used throughout the codebase.
+###############################################################################
+
+def format_message_spikes(*args: Dict[str, Any]) -> str:
+    """
+    Formats message data from multiple dictionaries, filtering out messages
+    where both price changes are less than 3.5% and volume change is less than 1000.
+
+    Args:
+        *args: Variable number of dictionaries containing message data.
+               Each dictionary should have the following keys:
+               - 'symbol' (str): The symbol of the asset (e.g., "BTCUSD").
+               - 'price_change' (float or str): The percentage price change.
+               - 'volume_change' (float or str): The percentage volume change.
+               - 'atr_pct' (float or str): The percentage of volatility using Average True Range.
+               - 'close' (float or str): The closing price.
+
+    Returns:
+        str: A formatted string containing all the messages that meet the
+             filtering criteria, separated by lines.
+    """
+    seen = set()
+    messages = ""
+    for raw in args:
+        key = frozenset(sorted(raw.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+
+        try:
+            price_change = float(raw.get('price_change', 0))
+            volume_change = float(raw.get('volume_change', 0))
+            atr_pct = float(raw.get('atr_pct', 0))
+            close = float(raw.get('close', 0))
+        except ValueError:
+            continue
+
+        if abs(price_change) < MIN_PRICE_CHANGE and volume_change < MIN_VOLUME_CHANGE:
+            continue
+
+        # Use Telegram-compatible HTML formatting (no <hr />, only supported tags)
+        message = (
+            f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
+            f"Price Change: {price_change:.2f}%\n"
+            f"Volume Change: {volume_change:.2f}%\n"
+            f"ATR Percentage: {atr_pct:.2f}%\n"
+            f"Close Price: {close}\n"
+            f"──────────────"
+        )
+        messages += message
+
+    return messages
+
+def format_symbol_name(symbol: str) -> str:
+    """Format symbol name for trading."""
+    if re.match(r"^[^/\s\d]*", symbol, re.IGNORECASE):
+        return f'{symbol.upper()}/USDT:USDT'
+    return ''
+
     

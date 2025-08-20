@@ -42,5 +42,3 @@ kubectl create secret generic tradebot-env --from-env-file=.env
 ```bash
 kubectl apply -f .
 ```
-
-
