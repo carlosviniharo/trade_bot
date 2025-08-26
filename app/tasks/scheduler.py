@@ -36,7 +36,7 @@ async def scheduled_task():
         await analyzer.calculate_market_spikes()
 
         top_price_increase = analyzer.get_top_symbols(metric="price_change")
-        top_price_decrease = analyzer.get_top_symbols(metric="price_change", ascending=False)
+        top_price_decrease = analyzer.get_top_symbols(metric="price_change", ascending=True)
         top_volume_change = analyzer.get_top_symbols(metric="volume_change")
 
         if any([top_price_increase, top_price_decrease, top_volume_change]):
@@ -96,7 +96,7 @@ scheduler = AsyncIOScheduler()
 
 def start_scheduler():
     logger.info("Starting scheduler...")
-    trigger = CronTrigger(minute="13,28,43,58")
+    trigger = CronTrigger(minute="14,29,44,59")
     # trigger = CronTrigger(minute="*/2")
     scheduler.add_job(scheduled_task, trigger)
     scheduler.start()

@@ -64,12 +64,20 @@ class BaseAnalyzer:
             raise ValueError(f"Invalid exchange ID: {self.exchange_id}")
 
     async def close(self) -> None:
-        """Properly close the exchange connection."""
+        """Properly close the exchange connection and underlying aiohttp session."""
         if self.exchange:
             try:
+                # Try ccxt's own close (closes session in most cases)
                 await self.exchange.close()
+                
+                # If ccxt left the session open, close it manually
+                session = getattr(self.exchange, "session", None)
+                if session and not session.closed:
+                    await session.close()
+                    print("aiohttp session closed manually.")
+                    
             except Exception as e:
-                raise RuntimeError(f"Error closing exchange: {e}")
+                print(f"Error during exchange close: {type(e).__name__} - {e}")
             finally:
                 self.exchange = None
 
@@ -186,7 +194,7 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
     def get_top_symbols(
         self, 
         metric: str = "volume_change", 
-        ascending: bool = True, 
+        ascending: bool = False,
         n_values: int = 3
     ) -> list[dict[str, Any]]:
         """
@@ -206,11 +214,8 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
             logger.warning(f"Metric '{metric}' not found in DataFrame columns.")
             return []
 
-        # Select only the relevant columns that exist in the DataFrame
-        self.df_final_values = self.df_final_values[['symbol', 'event_timestamp', 'price_change', 'volume_change', 'atr_pct', 'close']]
-
         df_sorted = (
-            self.df_final_values
+            self.df_final_values[['symbol', 'event_timestamp', 'price_change', 'volume_change', 'atr_pct', 'close']].copy()
             .sort_values(by=metric, ascending=ascending)
             .head(n_values)
             .reset_index(drop=True)
@@ -271,7 +276,6 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         # Fill NaNs with current high/low to avoid dropping rows
         self.df_final["future_max"] = self.df_final["future_max"].fillna(self.df_final["high"])
         self.df_final["future_min"] = self.df_final["future_min"].fillna(self.df_final["low"])
-        logger.debug(self.df_final)
         self.df_final.dropna(inplace=True)
     
     @staticmethod

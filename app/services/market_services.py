@@ -192,7 +192,7 @@ async def get_market_sentiment() -> MarketSentiment:
         )
 
 async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredictionResult:
-    analyzer = XGBoostSupportResistancePredictor(timeframe=time_frame)
+    analyzer = XGBoostSupportResistancePredictor(timeframe=time_frame, limit=1000)
     symbol = format_symbol_name(symbol)
 
     try:
