@@ -3,7 +3,7 @@ import sys
 
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from app.task.scheduler import start_scheduler, shutdown_scheduler
+from app.tasks.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import market_routers
 from app.core.database import Database
 from app.core.logging import AppLogger
