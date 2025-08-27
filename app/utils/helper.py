@@ -226,7 +226,7 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         elif metric == "volume_change":
             df_sorted["is_volume_event"] = True
 
-        return df_sorted.to_dict(orient='records')
+        return df_sorted
 
 
 class XGBoostSupportResistancePredictor(BaseAnalyzer):
@@ -479,14 +479,8 @@ def format_message_spikes(*args: Dict[str, Any]) -> str:
         str: A formatted string containing all the messages that meet the
              filtering criteria, separated by lines.
     """
-    seen = set()
     messages = ""
     for raw in args:
-        key = frozenset(sorted(raw.items()))
-        if key in seen:
-            continue
-        seen.add(key)
-
         try:
             price_change = float(raw.get('price_change', 0))
             volume_change = float(raw.get('volume_change', 0))
