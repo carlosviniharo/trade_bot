@@ -3,8 +3,9 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from app.utils.helper import BinanceVolumeAnalyzer
+from app.utils.helper import BinanceVolumeAnalyzer, format_message_spikes
 
+# Test cases for BaseAnalyzer and BinanceVolumeAnalyzer
 
 @pytest.fixture()
 def analyzer() -> BinanceVolumeAnalyzer:
@@ -90,3 +91,49 @@ def test_get_top_symbols_flags_and_sorting(
         assert other_flag not in row
 
 
+# Test cases for format_message_spikes
+
+def test_format_message_spikes_empty():
+    assert format_message_spikes() == ""
+
+def test_format_message_spikes_all_filtered():
+    # All below threshold
+    rows = [
+        {
+            "symbol": "FOO",
+            "price_change": 1.0,
+            "volume_change": 1000,
+            "atr_pct": 0.2,
+            "close": 10,
+        },
+        {
+            "symbol": "BAR",
+            "price_change": 2.0,
+            "volume_change": 2000,
+            "atr_pct": 0.3,
+            "close": 20,
+        },
+    ]
+    assert format_message_spikes(*rows) == ""
+
+def test_format_message_spikes_invalid_values():
+    # Should skip rows with invalid float conversion
+    rows = [
+        {
+            "symbol": "BAD",
+            "price_change": "not_a_number",
+            "volume_change": 6000,
+            "atr_pct": 1.0,
+            "close": 100,
+        },
+        {
+            "symbol": "GOOD",
+            "price_change": 4.0,
+            "volume_change": 6000,
+            "atr_pct": 1.0,
+            "close": 100,
+        },
+    ]
+    result = format_message_spikes(*rows)
+    assert "Symbol: GOOD" in result
+    assert "Symbol: BAD" not in result
