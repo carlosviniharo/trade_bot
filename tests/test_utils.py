@@ -83,9 +83,11 @@ def test_get_top_symbols_flags_and_sorting(
 
     result = analyzer.get_top_symbols(metric=metric, ascending=ascending, n_values=n_values)
 
-    assert [row["symbol"] for row in result] == expected_symbols
-    for row in result:
-        assert row.get(flag_key) is True
+    assert result.symbol.tolist() == expected_symbols
+
+    for row in result.itertuples(index=True, name='Row'):
+        value = getattr(row, flag_key)
+        assert value is True
         # Ensure the other flag is not present
         other_flag = "is_price_event" if flag_key == "is_volume_event" else "is_volume_event"
         assert other_flag not in row
