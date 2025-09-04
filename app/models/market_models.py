@@ -10,8 +10,10 @@ class UserBase(BaseModel):
     email: str
     age: int
 
+
 class UserCreate(UserBase):
     pass
+
 
 class User(UserBase):
     id: str
@@ -29,8 +31,10 @@ class MarketEvent(BaseModel):
     date_of_creation: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     date_of_modification: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+
 class MarketEventCreate(MarketEvent):
     pass
+
 
 class MarketEventRead(MarketEvent):
     id: str
@@ -46,28 +50,22 @@ class AtrData(BaseModel):
     atr: float
     atr_pct: float
 
+
 class Message(BaseModel):
     message: str
     success: bool
 
-class ResistanceSupport(BaseModel):
-    close: float
-    pivot_point: float
-    r1: float
-    s1: float
-    r2: float
-    s2: float
-    r3: float
-    s3: float
 
 class MarketSentiment(BaseModel):
     report: str
+
 
 class PaginatedResponse(BaseModel, Generic[T]):
     total: int
     page: int
     limit: int
     items: List[T]
+
 
 class XGBoostPredictionResult(BaseModel):
     message: str

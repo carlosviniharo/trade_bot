@@ -55,7 +55,9 @@ async def scheduled_task():
             telegram = TelegramOutput(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
 
             # Prepare event dictionaries
-            top_moves_v = [MarketEvent(**event).model_dump() for event in df_merged]
+            records = df_merged.to_dict(orient="records")
+            
+            top_moves_v = [MarketEvent(**event).model_dump() for event in records]
 
             # Insert non-empty lists and log
             if top_moves_v:

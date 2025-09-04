@@ -84,15 +84,6 @@ async def send_tg_message(message: Message):
     return await send_messages_tg(message)
 
 
-@router.get("/supportResistance/", response_model=ResistanceSupport)
-async def get_support_resistance(symbol: str = Query(...)):
-    sup_res = await get_support_resistance_levels(symbol)
-    if sup_res is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"The support and resistance calculation for'{symbol}' did not work")
-    return sup_res
-
 @router.get("/marketSentiment/", response_model=MarketSentiment)
 async def fetch_market_sentiment():
     sentiment = await get_market_sentiment()

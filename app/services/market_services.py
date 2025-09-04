@@ -162,22 +162,6 @@ async def send_messages_tg(message):
     return {"success": True, "message": "Message successfully delivered to Telegram"}
 
 
-async def get_support_resistance_levels(symbol: str) -> ResistanceSupport:
-    analyzer = BaseAnalyzer()
-    symbol = format_symbol_name(symbol)
-
-    try:
-        await analyzer.initialize()
-        await analyzer.get_historical_data(symbol)
-        analyzer.calculate_support_resistance()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-    finally:
-        await analyzer.close()
-    sup_res_resp = analyzer.get_df().iloc[-1].to_dict()
-    return ResistanceSupport(**sup_res_resp)
-
-
 async def get_market_sentiment() -> MarketSentiment:
     analyzer = MarketSentimentAnalyzer()
     try:
@@ -190,6 +174,7 @@ async def get_market_sentiment() -> MarketSentiment:
     return MarketSentiment(
         report=analyzer.render_report(sentiment_score)
         )
+
 
 async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredictionResult:
     analyzer = XGBoostSupportResistancePredictor(timeframe=time_frame, limit=1000)

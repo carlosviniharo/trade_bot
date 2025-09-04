@@ -17,7 +17,7 @@ import ccxt.async_support as ccxt_async
 from app.core.logging import AppLogger
 
 MIN_PRICE_CHANGE = 3
-MIN_VOLUME_CHANGE = 5000
+MIN_VOLUME_CHANGE = 5000 # NOtice that the volumen movements are above 100 then 5000 is a good threshold.
 ## The time limit should be calcuated dimanically based on the timeframe.
 ## For example, if the timeframe is 15m, the limit should be 96.
 ## If the timeframe is 1h, the limit should be 24.
@@ -74,10 +74,10 @@ class BaseAnalyzer:
                 session = getattr(self.exchange, "session", None)
                 if session and not session.closed:
                     await session.close()
-                    print("aiohttp session closed manually.")
+                    logger.info("aiohttp session closed manually.")
                     
             except Exception as e:
-                print(f"Error during exchange close: {type(e).__name__} - {e}")
+                logger.error(f"Error during exchange close: {type(e).__name__} - {e}")
             finally:
                 self.exchange = None
 
@@ -125,16 +125,6 @@ class BaseAnalyzer:
         if self.df.empty:
             raise ValueError("DataFrame is empty. Please call get_historical_data first.")
         return self.df
-
-    # def calculate_support_resistance(self) -> None:
-    #     """Calculate support and resistance levels."""
-    #     self.df['pivot_point'] = (self.df['high'] + self.df['low'] + self.df['close']) / 3
-    #     self.df['r1'] = (2 * self.df['pivot_point']) - self.df['low']
-    #     self.df['s1'] = (2 * self.df['pivot_point']) - self.df['high']
-    #     self.df['r2'] = self.df['pivot_point'] + (self.df['high'] - self.df['low'])
-    #     self.df['s2'] = self.df['pivot_point'] - (self.df['high'] - self.df['low'])
-    #     self.df['r3'] = self.df['high'] + 2 * (self.df['pivot_point'] - self.df['low'])
-    #     self.df['s3'] = self.df['low'] - 2 * (self.df['high'] - self.df['pivot_point'])
 
 
 class BinanceVolumeAnalyzer(BaseAnalyzer):
@@ -220,6 +210,10 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
             .head(n_values)
             .reset_index(drop=True)
         )
+
+        # Initialize both columns as False
+        df_sorted["is_price_event"] = False
+        df_sorted["is_volume_event"] = False
 
         if metric == "price_change":
             df_sorted["is_price_event"] = True
@@ -399,7 +393,7 @@ class MarketSentimentAnalyzer:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
-            print(f"[ERROR] Unable to fetch market data: {e}")
+            logger.error(f"[ERROR] Unable to fetch market data: {e}")
             return None
 
     def calculate_weighted_sentiment(self, market_data: List[Dict[str, Any]]) -> Optional[float]:
@@ -480,6 +474,7 @@ def format_message_spikes(*args: Dict[str, Any]) -> str:
              filtering criteria, separated by lines.
     """
     messages = ""
+    args.sort(key=lambda x: x.get('price_change'), reverse=True)
     for raw in args:
         try:
             price_change = float(raw.get('price_change', 0))
