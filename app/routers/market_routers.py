@@ -8,7 +8,6 @@ from app.models.market_models import (
     MarketEvent,
     MarketEventCreate,
     Message,
-    ResistanceSupport,
     MarketSentiment,
     PaginatedResponse,
     XGBoostPredictionResult

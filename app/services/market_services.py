@@ -12,7 +12,6 @@ from app.models.market_models import (
     MarketEventCreate, 
     MarketEventRead, 
     MarketSentiment,
-    ResistanceSupport, 
     PaginatedResponse,
     AtrData,
     XGBoostPredictionResult
