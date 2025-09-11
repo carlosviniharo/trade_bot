@@ -8,7 +8,6 @@ from app.models.market_models import (
     MarketEvent,
     MarketEventCreate,
     Message,
-    ResistanceSupport,
     MarketSentiment,
     PaginatedResponse,
     XGBoostPredictionResult
@@ -23,7 +22,6 @@ from app.services.market_services import (
     create_market_event,
     list_market_events,
     send_messages,
-    get_support_resistance_levels,
     get_market_sentiment, send_messages_tg,
     get_xgboosr_prediction
 )

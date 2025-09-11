@@ -95,7 +95,7 @@ scheduler = AsyncIOScheduler()
 def start_scheduler():
     logger.info("Starting scheduler...")
     trigger = CronTrigger(minute="14,29,44,59")
-    # trigger = CronTrigger(minute="*/2")
+    # trigger = CronTrigger(minute="*/1")
     scheduler.add_job(scheduled_task, trigger)
     scheduler.start()
 
