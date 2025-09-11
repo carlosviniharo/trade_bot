@@ -17,7 +17,7 @@ import ccxt.async_support as ccxt_async
 from app.core.logging import AppLogger
 
 MIN_PRICE_CHANGE = 3
-MIN_VOLUME_CHANGE = 5000 # NOtice that the volumen movements are above 100 then 5000 is a good threshold.
+MIN_VOLUME_CHANGE = 5000 # Notice that the volumen movements are above 100 then 5000 is a good threshold.
 ## The time limit should be calcuated dimanically based on the timeframe.
 ## For example, if the timeframe is 15m, the limit should be 96.
 ## If the timeframe is 1h, the limit should be 24.
@@ -241,7 +241,7 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         else:
             self.df = pd.DataFrame()
         
-# TODO: Include a exception for first run this methods in order to train the model.
+# TODO: Include a exception indicating to run this method first in order to train the model.
     def add_technical_indicators(self):
         """
         Add technical indicators to the dataframe.
@@ -270,6 +270,10 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         # Fill NaNs with current high/low to avoid dropping rows
         self.df_final["future_max"] = self.df_final["future_max"].fillna(self.df_final["high"])
         self.df_final["future_min"] = self.df_final["future_min"].fillna(self.df_final["low"])
+
+        # Transform to log space (important!)
+        self.df_final["future_max_log"] = np.log(self.df_final["future_max"])
+        self.df_final["future_min_log"] = np.log(self.df_final["future_min"])
         self.df_final.dropna(inplace=True)
     
     @staticmethod
@@ -330,41 +334,47 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
     def train_xgb_models(self):
         features = ["close", "rsi", "atr", "ema20", "ema50", "bb_high", "bb_low"]
         X = self.df_final[features]
-        y_high = self.df_final["future_max"]
-        y_low = self.df_final["future_min"]
+        # Targets in log-space
+        y_high_log = self.df_final["future_max_log"]
+        y_low_log = self.df_final["future_min_log"]
 
         # self.evaluate_with_timeseries_cv(X, y_high, y_low)
 
         logger.debug("\n--- Estimating Best Hyperparameters ---")
-        best_params_high = self.estimate_best_hyperparameters(X, y_high)
-        best_params_low = self.estimate_best_hyperparameters(X, y_low)
+        best_params_high = self.estimate_best_hyperparameters(X, y_high_log)
+        best_params_low = self.estimate_best_hyperparameters(X, y_low_log)
         logger.debug(f"Best Params (Resistance): {best_params_high}")
         logger.debug(f"Best Params (Support): {best_params_low}")
 
         xgb_high_final = XGBRegressor(**best_params_high, random_state=42)
         xgb_low_final = XGBRegressor(**best_params_low, random_state=42)
 
-        xgb_high_final.fit(X, y_high)
-        xgb_low_final.fit(X, y_low)
+        xgb_high_final.fit(X, y_high_log)
+        xgb_low_final.fit(X, y_low_log)
 
         latest_X = X.iloc[[-1]]
-        latest_resistance = xgb_high_final.predict(latest_X)[0]
-        latest_support = xgb_low_final.predict(latest_X)[0]
+        latest_resistance_log = xgb_high_final.predict(latest_X)[0]
+        latest_support_log = xgb_low_final.predict(latest_X)[0]
+
+        # Convert back to original price scale
+        latest_resistance = np.exp(latest_resistance_log)
+        latest_support = np.exp(latest_support_log)
 
         # Calculate prediction confidence based on model uncertainty
         # Notice that it is assumed that when atr == prediction_range
         # the confidence is 80%, then the scaling factor would be 20.
-
         atr_value = latest_X["atr"].iloc[-1]
         prediction_range = latest_resistance - latest_support
         confidence = min(100, max(0, 100 - (prediction_range / atr_value) * 20))
+
+        smart_round = lambda x: float("{:.4g}".format(x) if abs(x) < 1 else "{:.4f}".format(x))
 
         return {
             "message": "Final Model Live Prediction",
             "time_frame": self.timeframe,
             "prediction_confidence": round(confidence, 1),
-            "latest_predicted_resistance": round(latest_resistance, 4),
-            "latest_predicted_support": round(latest_support, 4)
+            "latest_predicted_resistance": smart_round(latest_resistance),
+            "latest_predicted_support": smart_round(latest_support)
         }
 
 
@@ -474,8 +484,7 @@ def format_message_spikes(*args: Dict[str, Any]) -> str:
              filtering criteria, separated by lines.
     """
     messages = ""
-    args.sort(key=lambda x: x.get('price_change'), reverse=True)
-    for raw in args:
+    for raw in sorted(args, key=lambda x: x.get('price_change', 0), reverse=True):   
         try:
             price_change = float(raw.get('price_change', 0))
             volume_change = float(raw.get('volume_change', 0))
