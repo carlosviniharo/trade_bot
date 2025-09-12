@@ -250,23 +250,43 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         close = self.df_final["close"].values
         high = self.df_final["high"].values
         low = self.df_final["low"].values
+        volume = self.df_final["volume"].values
 
-        # RSI
+        # Momentum indicators
         self.df_final["rsi"] = ta.RSI(close, timeperiod=14)
-        # ATR
+        self.df_final["roc"] = ta.ROC(close, timeperiod=10)
+        macd, macd_signal, macd_hist = ta.MACD(close, fastperiod=12, slowperiod=26, signalperiod=9)
+        self.df_final["macd"] = macd
+        self.df_final["macd_signal"] = macd_signal
+        self.df_final["macd_hist"] = macd_hist
+        
+        # Volatility indicators
         self.df_final["atr"] = ta.ATR(high, low, close, timeperiod=14)
+        self.df_final["bb_high"], self.df_final["bb_mid"], self.df_final["bb_low"] = ta.BBANDS(close, timeperiod=20)
+        self.df_final["bb_width"] = ((
+            self.df_final["bb_high"] - self.df_final["bb_low"]) / 
+            self.df_final["bb_mid"]
+            )
 
-        # EMA20 and EMA50
+        # Trend indicators
         self.df_final["ema20"] = ta.EMA(close, timeperiod=20)
         self.df_final["ema50"] = ta.EMA(close, timeperiod=50)
-        # Bollinger Bands
-        self.df_final["bb_high"], _, self.df_final["bb_low"] = ta.BBANDS(close, timeperiod=20)
+
+            # Volume-based
+        self.df_final["obv"] = ta.OBV(close, volume)
+        self.df_final["vol_sma"] = pd.Series(volume).rolling(20).mean().values
+        
+        
         self.df_final.dropna(inplace=True)
     
-    def generate_targets(self, window=10):
+    def generate_targets(self, window=10, quantile_level=0.8):
 
-        self.df_final["future_max"] = self.df_final["high"].rolling(window).max().shift(-window)
-        self.df_final["future_min"] = self.df_final["low"].rolling(window).min().shift(-window)
+        self.df_final["future_max"] = (
+            self.df_final["high"].shift(-1).rolling(window).quantile(quantile_level)
+            )
+        self.df_final["future_min"] = (
+            self.df_final["low"].shift(-1).rolling(window).quantile(1 - quantile_level)
+            )
         # Fill NaNs with current high/low to avoid dropping rows
         self.df_final["future_max"] = self.df_final["future_max"].fillna(self.df_final["high"])
         self.df_final["future_min"] = self.df_final["future_min"].fillna(self.df_final["low"])
