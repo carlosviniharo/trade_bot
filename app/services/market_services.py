@@ -6,6 +6,8 @@ from fastapi import HTTPException
 
 from app.core.logging import AppLogger
 from app.models.market_models import (
+    AtrResult,
+    AtrResults,
     User, 
     UserCreate, 
     MarketEvent, 
@@ -13,7 +15,6 @@ from app.models.market_models import (
     MarketEventRead, 
     MarketSentiment,
     PaginatedResponse,
-    AtrData,
     XGBoostPredictionResult
     )
 from app.core.database import get_database
@@ -82,8 +83,8 @@ def market_events_helper(market_event_record) -> MarketEventRead:
         event_timestamp=market_event_record["event_timestamp"],
         is_price_event=market_event_record["is_price_event"],
         is_volume_event=market_event_record["is_volume_event"],
-        price_change=market_event_record["price_change"],
-        volume_change=market_event_record["volume_change"],
+        price_rate=market_event_record["price_rate"],
+        volume_rate=market_event_record["volume_rate"],
         atr_pct=market_event_record["atr_pct"],
         close=market_event_record["close"],
         date_of_creation=market_event_record["date_of_creation"],
@@ -118,22 +119,35 @@ async def list_market_events(params: PaginationParams):
     )
 
 
-async def get_atr(symbol: str) -> AtrData:
-    analyzer = BaseAnalyzer()
+async def get_atr(symbol: str) -> AtrResults:
+
     symbol = format_symbol_name(symbol)
-    try:
-        await analyzer.initialize()
-        await analyzer.get_historical_data(symbol)
-        analyzer.calculate_atr()
-        df = analyzer.get_df()
-        if df.empty:
-            raise HTTPException(status_code=404, detail=f"No ATR data found for symbol '{symbol}'")
-        atr_data_dict = df.iloc[-1].to_dict()
-        return AtrData(**atr_data_dict)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-    finally:
-        await analyzer.close()
+    result = []
+    
+    for timeframe in ["1m", "5m", "15m"]:
+        try:
+            analyzer = BaseAnalyzer(timeframe=timeframe, limit=101)
+            await analyzer.initialize()
+            await analyzer.get_historical_data(symbol)
+            analyzer.get_atr()
+            analyzer.get_atr_above_median()
+            df = analyzer.get_df()
+
+            if df.empty:
+                raise HTTPException(status_code=404, detail=f"No ATR data found for symbol '{symbol}'")
+
+            atr_data_dict = df.iloc[-1].to_dict()
+            atr_data_dict["timeframe"] = timeframe
+            result.append(AtrResult(**atr_data_dict))
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        finally:
+            await analyzer.close()
+
+    return AtrResults(atr_results=result)
+
+
 
 
 async def send_messages(message):

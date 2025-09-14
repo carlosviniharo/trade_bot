@@ -36,17 +36,17 @@ async def scheduled_task():
         await analyzer.initialize()
         await analyzer.calculate_market_spikes()
 
-        df_top_price_increase = analyzer.get_top_symbols(metric="price_change")
-        df_top_price_decrease = analyzer.get_top_symbols(metric="price_change", ascending=True)
-        df_top_volume_change = analyzer.get_top_symbols(metric="volume_change")
+        df_top_price_increase = analyzer.get_top_symbols(metric="price_rate")
+        df_top_price_decrease = analyzer.get_top_symbols(metric="price_rate", ascending=True)
+        df_top_volume_change = analyzer.get_top_symbols(metric="volume_rate")
 
         # Merge the dataframes and group by symbol and event_timestamp
         df_merged = pd.concat([df_top_price_increase, df_top_price_decrease, df_top_volume_change])
         df_merged = df_merged.groupby(["symbol", "event_timestamp"], as_index=False).agg({
             "is_price_event": "max",
             "is_volume_event": "max",
-            "price_change": "first",
-            "volume_change": "first",
+            "price_rate": "first",
+            "volume_rate": "first",
             "atr_pct": "first",
             "close": "first",
             })

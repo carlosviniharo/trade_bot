@@ -2,9 +2,9 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Query, Depends
 from app.models.market_models import (
+    AtrResults,
     User,
     UserCreate,
-    AtrData,
     MarketEvent,
     MarketEventCreate,
     Message,
@@ -66,12 +66,12 @@ async def create_new_market_event(market_event: MarketEventCreate):
 async def get_list_market_events(params: PaginationParams = Depends()) -> PaginatedResponse:
     return await list_market_events(params)
 
-@router.get("/getAtrBySymbol/", response_model=AtrData)
+@router.get("/getAtrBySymbol/", response_model=AtrResults)
 async def get_atr_by_symbol(symbol: str = Query(...)):
-    atr = await get_atr(symbol)
-    if atr is None:
+    atrs = await get_atr(symbol)
+    if atrs is None:
         raise HTTPException(status_code=404, detail=f"ATR data for symbol '{symbol}' not found")
-    return atr
+    return atrs
 
 @router.post("/sendMessageWP/", response_model=Message)
 async def send_wp_message(message: Message):

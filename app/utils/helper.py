@@ -126,6 +126,93 @@ class BaseAnalyzer:
             raise ValueError("DataFrame is empty. Please call get_historical_data first.")
         return self.df
 
+    def get_rsi(self, metric: str = "close", window: int = 14):
+        """
+        Get RSI indicator.
+        """
+        metric_values = self.df[metric].values
+        self.df["rsi"] = ta.RSI(metric_values, timeperiod=window)
+        
+    def get_roc(self, metric: str = "close", window: int = 10):
+        """
+        Get ROC indicator.
+        """
+        metric_values = self.df[metric].values
+        if metric == "close":
+            self.df["price_rate"] = ta.ROC(metric_values, timeperiod=window)
+        else:
+            self.df[f"{metric}_rate"] = ta.ROC(metric_values, timeperiod=window)
+
+    def get_macd(self, fastperiod: int = 12, slowperiod: int = 26, signalperiod: int = 9):
+        """
+        Get MACD indicator.
+        """
+        close = self.df["close"].values
+
+        macd, macd_signal, macd_hist = ta.MACD(
+            close, 
+            fastperiod=fastperiod, 
+            slowperiod=slowperiod, 
+            signalperiod=signalperiod
+            )
+        self.df["macd"] = macd
+        self.df["macd_signal"] = macd_signal
+        self.df["macd_hist"] = macd_hist
+    
+    def get_atr(self, window: int = 14):
+        """
+        Get ATR indicator.
+        """
+        high = self.df["high"].values
+        low = self.df["low"].values
+        close = self.df["close"].values
+        
+        self.df['atr'] = ta.ATR(high, low, close, timeperiod=window)
+        self.df['atr_pct'] = (self.df['atr'] / close) * 100
+
+    def get_atr_above_median(self, median_window=100):
+        if not "atr" in self.df:
+            logger.error("ATR not found in DataFrame. Please call get_atr first.")
+            raise ValueError("ATR not found in DataFrame. Please call get_atr first.")
+
+        if len(self.df) <= median_window:
+            self.df['atr_mean'] = 0
+            self.df['atr_above_mean'] = False
+            print("Not enough data to compute ATR median.")
+        else:
+            self.df['atr_mean'] = self.df['atr'].rolling(window=median_window).mean()
+            self.df['atr_above_mean'] = self.df['atr'] > self.df['atr_mean']
+
+    def get_bbands(self, window: int = 20):
+        """
+        Get Bollinger Bands indicator.
+        """
+        close = self.df["close"].values
+        self.df["bb_high"], self.df["bb_mid"], self.df["bb_low"] = ta.BBANDS(close, timeperiod=window)
+        self.df["bb_width"] = (self.df["bb_high"] - self.df["bb_low"]) / self.df["bb_mid"]
+
+    def get_ema(self, window: int = 20):
+        """
+        Get EMA indicator.
+        """
+        close = self.df["close"].values
+        self.df[f"ema{window}"] = ta.EMA(close, timeperiod=window)
+
+    def get_obv(self):
+        """
+        Get OBV indicator.
+        """
+        close = self.df["close"].values
+        volume = self.df["volume"].values
+        self.df["obv"] = ta.OBV(close, volume)
+    
+    def get_vol_sma(self, window: int = 20):
+        """
+        Get Volume SMA indicator.
+        """
+        volume = self.df["volume"].values
+        self.df["vol_sma"] = pd.Series(volume).rolling(window).mean().values
+
 
 class BinanceVolumeAnalyzer(BaseAnalyzer):
     """Extended volume analyzer for Binance with market spike detection."""
@@ -138,13 +225,14 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         """Process individual symbol data."""
         await self.get_historical_data(symbol)
         if self.df is not None and len(self.df) > 1:
-            self.calculate_atr()
-            df = self.df.copy()
+            self.get_atr()
+            self.get_roc("close", window)
+            self.get_roc("volume", window)
+            result = self.df.copy()
             match = re.match(r"^[^/ \s]*", symbol)
-            df['symbol'] = match.group(0) if match else symbol
-            df['price_change'] = ta.ROC(df['close'].values, timeperiod=window)
-            df['volume_change'] = ta.ROC(df['volume'].values, timeperiod=window)
-            return df.iloc[[-1]]
+            result['symbol'] = match.group(0) if match else symbol
+
+            return result.iloc[[-1]]
         return pd.DataFrame()
 
     async def calculate_market_spikes(self) -> None:
@@ -160,6 +248,10 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
 
         # Select only symbols that are USDT pairs
         usdt_pairs = [symbol for symbol in tickers.keys() if symbol.endswith('USDT')]
+        
+        if not usdt_pairs:
+            logger.warning("No USDT pairs found in tickers.")
+            raise RuntimeWarning("No USDT pairs available for analysis")
 
         # Asynchronously process each USDT pair to compute indicators
         tasks = [self.process_symbol(symbol) for symbol in usdt_pairs]
@@ -183,7 +275,7 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
 
     def get_top_symbols(
         self, 
-        metric: str = "volume_change", 
+        metric: str = "volume_rate", 
         ascending: bool = False,
         n_values: int = 3
     ) -> list[dict[str, Any]]:
@@ -198,14 +290,15 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         - Returns an empty list if metric is not present.
         """
         if self.df_final_values.empty:
-            return []
+            logger.warning("DataFrame is empty. Please call calculate_market_spikes first.")
+            raise ValueError("DataFrame is empty. Please call calculate_market_spikes first.")
 
         if metric not in self.df_final_values.columns:
             logger.warning(f"Metric '{metric}' not found in DataFrame columns.")
-            return []
+            raise ValueError(f"Metric '{metric}' not found in DataFrame columns.")
 
         df_sorted = (
-            self.df_final_values[['symbol', 'event_timestamp', 'price_change', 'volume_change', 'atr_pct', 'close']].copy()
+            self.df_final_values[['symbol', 'event_timestamp', 'price_rate', 'volume_rate', 'atr_pct', 'close']].copy()
             .sort_values(by=metric, ascending=ascending)
             .head(n_values)
             .reset_index(drop=True)
@@ -215,9 +308,9 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         df_sorted["is_price_event"] = False
         df_sorted["is_volume_event"] = False
 
-        if metric == "price_change":
+        if metric == "price_rate":
             df_sorted["is_price_event"] = True
-        elif metric == "volume_change":
+        elif metric == "volume_rate":
             df_sorted["is_volume_event"] = True
 
         return df_sorted
@@ -252,28 +345,33 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         low = self.df_final["low"].values
         volume = self.df_final["volume"].values
 
-        # Momentum indicators
+        # RSI calculation
         self.df_final["rsi"] = ta.RSI(close, timeperiod=14)
+
+        # ROC calculation
         self.df_final["roc"] = ta.ROC(close, timeperiod=10)
+
+        # MACD calculation
         macd, macd_signal, macd_hist = ta.MACD(close, fastperiod=12, slowperiod=26, signalperiod=9)
         self.df_final["macd"] = macd
         self.df_final["macd_signal"] = macd_signal
         self.df_final["macd_hist"] = macd_hist
-        
-        # Volatility indicators
-        self.df_final["atr"] = ta.ATR(high, low, close, timeperiod=14)
-        self.df_final["bb_high"], self.df_final["bb_mid"], self.df_final["bb_low"] = ta.BBANDS(close, timeperiod=20)
-        self.df_final["bb_width"] = ((
-            self.df_final["bb_high"] - self.df_final["bb_low"]) / 
-            self.df_final["bb_mid"]
-            )
 
-        # Trend indicators
+        # ATR calculation
+        self.df_final["atr"] = ta.ATR(high, low, close, timeperiod=14)
+
+        # Bollinger Bands calculation
+        self.df_final["bb_high"], self.df_final["bb_mid"], self.df_final["bb_low"] = ta.BBANDS(close, timeperiod=20)
+        self.df_final["bb_width"] = (self.df_final["bb_high"] - self.df_final["bb_low"]) / self.df_final["bb_mid"]
+
+        # EMA calculations
         self.df_final["ema20"] = ta.EMA(close, timeperiod=20)
         self.df_final["ema50"] = ta.EMA(close, timeperiod=50)
 
-            # Volume-based
+        # OBV calculation
         self.df_final["obv"] = ta.OBV(close, volume)
+
+        # Volume SMA calculation
         self.df_final["vol_sma"] = pd.Series(volume).rolling(20).mean().values
         
         
@@ -488,46 +586,51 @@ class PaginationParams:
 def format_message_spikes(*args: Dict[str, Any]) -> str:
     """
     Formats message data from multiple dictionaries, filtering out messages
-    where both price changes are less than 3.5% and volume change is less than 1000.
+    where both price changes are less than MIN_PRICE_CHANGE and volume change 
+    is less than MIN_VOLUME_CHANGE.
 
     Args:
         *args: Variable number of dictionaries containing message data.
-               Each dictionary should have the following keys:
-               - 'symbol' (str): The symbol of the asset (e.g., "BTCUSD").
-               - 'price_change' (float or str): The percentage price change.
-               - 'volume_change' (float or str): The percentage volume change.
-               - 'atr_pct' (float or str): The percentage of volatility using Average True Range.
-               - 'close' (float or str): The closing price.
+               Each dictionary should have the keys:
+               - 'symbol', 'price_rate', 'volume_rate', 'atr_pct', 'close'
 
     Returns:
-        str: A formatted string containing all the messages that meet the
-             filtering criteria, separated by lines.
-    """
-    messages = ""
-    for raw in sorted(args, key=lambda x: x.get('price_change', 0), reverse=True):   
+        str: A formatted string containing all messages that meet the
+             filtering criteria.
+    """ 
+    messages = []
+
+    def safe_float(raw):
         try:
-            price_change = float(raw.get('price_change', 0))
-            volume_change = float(raw.get('volume_change', 0))
+            return float(raw.get("price_rate", 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    for raw in sorted(args, key=safe_float, reverse=True):
+        try:   
+            price_rate = float(raw.get('price_rate', 0))
+            volume_rate = float(raw.get('volume_rate', 0))
             atr_pct = float(raw.get('atr_pct', 0))
             close = float(raw.get('close', 0))
         except ValueError:
             continue
 
-        if abs(price_change) < MIN_PRICE_CHANGE and volume_change < MIN_VOLUME_CHANGE:
+        if abs(price_rate) < MIN_PRICE_CHANGE and volume_rate < MIN_VOLUME_CHANGE:
             continue
 
-        # Use Telegram-compatible HTML formatting (no <hr />, only supported tags)
-        message = (
-            f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
-            f"Price Change: {price_change:.2f}%\n"
-            f"Volume Change: {volume_change:.2f}%\n"
-            f"ATR Percentage: {atr_pct:.2f}%\n"
-            f"Close Price: {close}\n"
-            f"──────────────"
+        # Build message using f-string
+        messages.append(
+            (
+                f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
+                f"Price Change: {price_rate:.2f}%\n"
+                f"Volume Change: {volume_rate:.2f}%\n"
+                f"ATR Percentage: {atr_pct:.2f}%\n"
+                f"Close Price: {close}\n"
+                f"──────────────"
+            )
         )
-        messages += message
 
-    return messages
+    return "\n".join(messages)
 
 def format_symbol_name(symbol: str) -> str:
     """Format symbol name for trading."""

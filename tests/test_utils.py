@@ -16,34 +16,33 @@ def _build_df(rows: list[dict]) -> pd.DataFrame:
     return pd.DataFrame.from_records(rows)
 
 
-def test_get_top_symbols_returns_empty_when_df_empty(analyzer: BinanceVolumeAnalyzer):
+def test_get_top_symbols_raises_when_df_empty(analyzer: BinanceVolumeAnalyzer):
     analyzer.df_final_values = pd.DataFrame()
+    with pytest.raises(ValueError, match="DataFrame is empty"):
+        analyzer.get_top_symbols(metric="volume_rate", ascending=False, n_values=3)
 
-    result = analyzer.get_top_symbols(metric="volume_change", ascending=False, n_values=3)
-    assert result == []
 
-
-def test_get_top_symbols_returns_empty_when_metric_invalid(analyzer: BinanceVolumeAnalyzer):
+def test_get_top_symbols_raises_when_metric_invalid(analyzer: BinanceVolumeAnalyzer):
     analyzer.df_final_values = _build_df([
         {
             "symbol": "BTCUSDT",
             "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
-            "price_change": 1.0,
-            "volume_change": 10.0,
+            "price_rate": 1.0,
+            "volume_rate": 10.0,
             "atr_pct": 2.0,
             "close": 42000.0,
         }
     ])
 
-    result = analyzer.get_top_symbols(metric="nonexistent_metric", ascending=False, n_values=3)
-    assert result == []
+    with pytest.raises(ValueError, match="Metric 'nonexistent_metric' not found in DataFrame columns"):
+        analyzer.get_top_symbols(metric="nonexistent_metric", ascending=False, n_values=3)
 
 
 @pytest.mark.parametrize(
     "metric,ascending,n_values,expected_symbols,flag_key",
     [
-        ("volume_change", False, 2, ["ETHUSDT", "SOLUSDT"], "is_volume_event"),
-        ("price_change", True, 2, ["ETHUSDT", "SOLUSDT"], "is_price_event"),
+        ("volume_rate", False, 2, ["ETHUSDT", "SOLUSDT"], "is_volume_event"),
+        ("price_rate", True, 2, ["ETHUSDT", "SOLUSDT"], "is_price_event"),
     ],
 )
 def test_get_top_symbols_flags_and_sorting(
@@ -58,24 +57,24 @@ def test_get_top_symbols_flags_and_sorting(
         {
             "symbol": "BTCUSDT",
             "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
-            "price_change": 3.0,
-            "volume_change": 5.0,
+            "price_rate": 3.0,
+            "volume_rate": 5.0,
             "atr_pct": 2.0,
             "close": 42000.0,
         },
         {
             "symbol": "ETHUSDT",
             "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
-            "price_change": -4.0,
-            "volume_change": 15.0,
+            "price_rate": -4.0,
+            "volume_rate": 15.0,
             "atr_pct": 1.5,
             "close": 3200.0,
         },
         {
             "symbol": "SOLUSDT",
             "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
-            "price_change": 1.0,
-            "volume_change": 9.0,
+            "price_rate": 1.0,
+            "volume_rate": 9.0,
             "atr_pct": 3.0,
             "close": 110.0,
         },
@@ -103,15 +102,15 @@ def test_format_message_spikes_all_filtered():
     rows = [
         {
             "symbol": "FOO",
-            "price_change": 1.0,
-            "volume_change": 1000,
+            "price_rate": 1.0,
+            "volume_rate": 1000,
             "atr_pct": 0.2,
             "close": 10,
         },
         {
             "symbol": "BAR",
-            "price_change": 2.0,
-            "volume_change": 2000,
+            "price_rate": 2.0,
+            "volume_rate": 2000,
             "atr_pct": 0.3,
             "close": 20,
         },
@@ -123,15 +122,15 @@ def test_format_message_spikes_invalid_values():
     rows = [
         {
             "symbol": "BAD",
-            "price_change": "not_a_number",
-            "volume_change": 6000,
+            "price_rate": "not_a_number",
+            "volume_rate": 6000,
             "atr_pct": 1.0,
             "close": 100,
         },
         {
             "symbol": "GOOD",
-            "price_change": 4.0,
-            "volume_change": 6000,
+            "price_rate": 4.0,
+            "volume_rate": 6000,
             "atr_pct": 1.0,
             "close": 100,
         },

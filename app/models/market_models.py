@@ -24,8 +24,8 @@ class MarketEvent(BaseModel):
     event_timestamp: datetime
     is_price_event: bool = False
     is_volume_event: bool = False
-    price_change: Optional[float] = 0
-    volume_change: Optional[float] = 0
+    price_rate: Optional[float] = 0
+    volume_rate: Optional[float] = 0
     atr_pct: Optional[float] = 0
     close: float
     date_of_creation: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -40,15 +40,16 @@ class MarketEventRead(MarketEvent):
     id: str
     
 
-class AtrData(BaseModel):
-    timestamp: datetime
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
+class AtrResult(BaseModel):
+    timeframe: str
     atr: float
     atr_pct: float
+    atr_above_mean: bool
+
+
+class AtrResults(BaseModel):
+    timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    atr_results: List[AtrResult]
 
 
 class Message(BaseModel):
