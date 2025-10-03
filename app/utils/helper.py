@@ -11,6 +11,7 @@ import talib as ta
 from fastapi import Query
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
+from statsmodels.tsa.stattools import acf
 from xgboost import XGBRegressor
 
 import ccxt.async_support as ccxt_async
@@ -44,6 +45,7 @@ class BaseAnalyzer:
         self.exchange_id = exchange_id
         self.timeframe = timeframe
         self.df = pd.DataFrame()
+
 
     async def initialize(self) -> None:
         """Initialize the Binance futures exchange."""
@@ -170,15 +172,16 @@ class BaseAnalyzer:
         self.df['atr'] = ta.ATR(high, low, close, timeperiod=window)
         self.df['atr_pct'] = (self.df['atr'] / close) * 100
 
-    def get_atr_above_median(self, median_window=100):
+    def get_atr_above_median(self):
         if not "atr" in self.df:
             logger.error("ATR not found in DataFrame. Please call get_atr first.")
             raise ValueError("ATR not found in DataFrame. Please call get_atr first.")
+        median_window = calculate_correlation(self.df)
 
         if len(self.df) <= median_window:
             self.df['atr_mean'] = 0
             self.df['atr_above_mean'] = False
-            print("Not enough data to compute ATR median.")
+            logger.info("Not enough data to compute ATR median.")
         else:
             self.df['atr_mean'] = self.df['atr'].rolling(window=median_window).mean()
             self.df['atr_above_mean'] = self.df['atr'] > self.df['atr_mean']
@@ -632,10 +635,64 @@ def format_message_spikes(*args: Dict[str, Any]) -> str:
 
     return "\n".join(messages)
 
+
 def format_symbol_name(symbol: str) -> str:
     """Format symbol name for trading."""
     if re.match(r"^[^/\s\d]*", symbol, re.IGNORECASE):
         return f'{symbol.upper()}/USDT:USDT'
     return ''
 
-    
+
+def calculate_correlation(
+    df: pd.DataFrame, 
+    measure_column: str = "atr", 
+    nlags: int = 100, 
+    threshold: float = 0.1,
+    min_window: int = 5,
+    default_window: int = 50
+) -> int:
+    """
+    Calculate the optimal window size for ATR averaging based on autocorrelation.
+
+    Args:
+        df: DataFrame containing the measure to calculate the correlation.
+        measure_column: The column name to analyze.
+        nlags: Number of lags to compute in autocorrelation.
+        threshold: The absolute autocorrelation value below which to consider the lag uncorrelated.
+        min_window: Minimum window size to return.
+        default_window: Default window size if no lag meets the threshold.
+
+    Returns:
+        int: Suggested window size based on autocorrelation analysis.
+    """
+    if measure_column not in df.columns:
+        msg = (
+            f"Column '{measure_column}' not found in DataFrame. "
+            f"Available columns: {list(df.columns)}"
+        )
+        logger.error(msg)
+        raise ValueError(msg)
+
+    atr_series = df[measure_column].dropna()
+    if len(atr_series) < min_window:
+        logger.info(
+            "Not enough data to compute autocorrelation "
+            f"(need at least {min_window} values). Returning min_window={min_window}."
+        )
+        return min_window
+
+    acf_vals = acf(atr_series, nlags=nlags, fft=True)
+
+    # Skip lag 0 (always 1.0), start from lag 1
+    for lag, val in enumerate(acf_vals[1:], start=1):
+        if abs(val) < threshold:
+            logger.info(
+                f"Suggested window: {lag} (autocorrelation dropped below {threshold})"
+            )
+            return max(lag, min_window)
+
+    logger.info(
+        f"No lag found with autocorrelation below {threshold}. "
+        f"Returning default_window={default_window}."
+    )
+    return default_window

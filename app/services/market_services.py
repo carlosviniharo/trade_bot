@@ -119,35 +119,47 @@ async def list_market_events(params: PaginationParams):
     )
 
 
-async def get_atr(symbol: str) -> AtrResults:
+async def run_analyzer(symbol: str, timeframe: str) -> AtrResult | None:
+    analyzer = BaseAnalyzer(timeframe=timeframe, limit=1000)
+    try:
+        await analyzer.initialize()
+        await analyzer.get_historical_data(symbol)
 
+        # Run CPU-bound tasks concurrently in threads
+        await asyncio.to_thread(analyzer.get_atr)
+        await asyncio.to_thread(analyzer.get_atr_above_median)
+    
+        # Get DataFrame after calculations finish
+        df = analyzer.get_df().copy()
+
+
+        if df.empty:
+            return None
+
+        atr_data_dict = df.iloc[-1].to_dict()
+        atr_data_dict["timeframe"] = timeframe
+        return AtrResult(**atr_data_dict)
+
+    finally:
+        await analyzer.close()
+
+
+async def get_atr(symbol: str) -> AtrResults:
     symbol = format_symbol_name(symbol)
     result = []
-    
-    for timeframe in ["1m", "5m", "15m"]:
-        try:
-            analyzer = BaseAnalyzer(timeframe=timeframe, limit=101)
-            await analyzer.initialize()
-            await analyzer.get_historical_data(symbol)
-            analyzer.get_atr()
-            analyzer.get_atr_above_median()
-            df = analyzer.get_df()
 
-            if df.empty:
-                raise HTTPException(status_code=404, detail=f"No ATR data found for symbol '{symbol}'")
+    # Run all timeframes concurrently
+    tasks = [run_analyzer(symbol, tf) for tf in ["1m", "5m", "15m"]]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            atr_data_dict = df.iloc[-1].to_dict()
-            atr_data_dict["timeframe"] = timeframe
-            result.append(AtrResult(**atr_data_dict))
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-        finally:
-            await analyzer.close()
+    for r in results:
+        if isinstance(r, Exception):
+            raise HTTPException(status_code=500, detail=f"An error occurred: {str(r)}")
+        if r is None:
+            raise HTTPException(status_code=404, detail=f"No ATR data found for symbol '{symbol}'")
+        result.append(r)
 
     return AtrResults(atr_results=result)
-
-
 
 
 async def send_messages(message):

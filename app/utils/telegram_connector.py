@@ -111,7 +111,8 @@ class TelegramOutput:
         Returns:
             None
         """
-        await self.client.aclose()
+        if self.client:
+            await self.client.aclose()
 
 
 class TelegramInput:
