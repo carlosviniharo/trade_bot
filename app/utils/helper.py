@@ -174,8 +174,9 @@ class BaseAnalyzer:
 
     def get_atr_above_median(self):
         if not "atr" in self.df:
-            logger.error("ATR not found in DataFrame. Please call get_atr first.")
-            raise ValueError("ATR not found in DataFrame. Please call get_atr first.")
+            msg = "ATR not found in DataFrame. Please call get_atr first."
+            logger.error(msg)
+            raise ValueError(msg)
         median_window = calculate_correlation(self.df)
 
         if len(self.df) <= median_window:
@@ -646,7 +647,7 @@ def format_symbol_name(symbol: str) -> str:
 def calculate_correlation(
     df: pd.DataFrame, 
     measure_column: str = "atr", 
-    nlags: int = 100, 
+    nlags: int = 200, 
     threshold: float = 0.1,
     min_window: int = 5,
     default_window: int = 50

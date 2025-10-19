@@ -96,7 +96,11 @@ def start_scheduler():
     logger.info("Starting scheduler...")
     trigger = CronTrigger(minute="14,29,44,59")
     # trigger = CronTrigger(minute="*/1")
-    scheduler.add_job(scheduled_task, trigger)
+    scheduler.add_job(
+        scheduled_task, 
+        trigger,
+        misfire_grace_time=2
+        )
     scheduler.start()
 
 def shutdown_scheduler():
