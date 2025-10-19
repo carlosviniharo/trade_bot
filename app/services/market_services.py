@@ -120,7 +120,7 @@ async def list_market_events(params: PaginationParams):
 
 
 async def run_analyzer(symbol: str, timeframe: str) -> AtrResult | None:
-    analyzer = BaseAnalyzer(timeframe=timeframe, limit=1500)
+    analyzer = BaseAnalyzer(timeframe=timeframe, limit=500)
     try:
         await analyzer.initialize()
         await analyzer.get_historical_data(symbol)
