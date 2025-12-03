@@ -6,15 +6,6 @@ import pandas as pd
 
 from app.models.market_models import MarketEvent
 
-# Set the event loop policy for Windows if necessary
-if sys.platform == 'win32':
-    # Check if aiodns is imported, and apply the event loop policy
-    try:
-        import aiodns
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    except ImportError:
-        pass
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.database import get_database
 from app.core.logging import AppLogger
@@ -38,18 +29,9 @@ async def scheduled_task():
 
         df_top_price_increase = analyzer.get_top_symbols(metric="price_rate")
         df_top_price_decrease = analyzer.get_top_symbols(metric="price_rate", ascending=True)
-        df_top_volume_change = analyzer.get_top_symbols(metric="volume_rate")
 
         # Merge the dataframes and group by symbol and event_timestamp
-        df_merged = pd.concat([df_top_price_increase, df_top_price_decrease, df_top_volume_change])
-        df_merged = df_merged.groupby(["symbol", "event_timestamp"], as_index=False).agg({
-            "is_price_event": "max",
-            "is_volume_event": "max",
-            "price_rate": "first",
-            "volume_rate": "first",
-            "atr_pct": "first",
-            "close": "first",
-            })
+        df_merged = pd.concat([df_top_price_increase, df_top_price_decrease])
         
         if not df_merged.empty:
             telegram = TelegramOutput(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
@@ -79,6 +61,8 @@ async def scheduled_task():
                     )
                 finally:
                     await telegram.close()
+            else:
+                logger.info("No message to send")
         else:
             logger.info("No trade data to insert")
     except Exception as e:

@@ -1,8 +1,9 @@
 import asyncio
+from concurrent.futures.thread import ThreadPoolExecutor
 import re
 import traceback
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Self, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -25,11 +26,103 @@ MIN_VOLUME_CHANGE = 5000 # Notice that the volumen movements are above 100 then 
 ## If the timeframe is 4h, the limit should be 6.
 ## If the timeframe is 1d, the limit should be 1.
 SINCE_24H_AGO_LIMIT = 96
+_INDICATOR_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+T = TypeVar("T")
 # Initialize logging
 logger = AppLogger.get_logger()
 
-# if sys.platform == 'win32':
-#     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+class IndicatorComputer:
+    """Computes technical indicators on linear or log-transformed prices."""
+
+    def __init__(self, df: pd.DataFrame):
+        self._df_transformed = df.copy()
+        self.close = self._df_transformed["close"].values
+        self.high = self._df_transformed["high"].values
+        self.low = self._df_transformed["low"].values
+        self.volume = self._df_transformed["volume"].values
+
+    def get_df_transformed(self) -> pd.DataFrame:
+        return self._df_transformed
+
+    
+    def atr(self, window: int = 14) -> Self:
+        self._df_transformed["atr"] = ta.ATR(self.high, self.low, self.close, timeperiod=window)
+        self._df_transformed["atr_pct"] = (self._df_transformed["atr"] / np.abs(self.close)) * 100
+        return self
+
+    def get_atr_above_median(self) -> Self:
+        if "atr" not in self._df_transformed:
+            msg = "ATR not found in DataFrame. Please call atr() first."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        median_window = calculate_correlation(self._df_transformed)
+
+        if len(self._df_transformed) <= median_window:
+            self._df_transformed['atr_mean'] = 0.0
+            self._df_transformed['atr_above_mean'] = False
+            logger.info("Not enough data to compute ATR median.")
+        else:
+            self._df_transformed['atr_mean'] = self._df_transformed['atr'].rolling(window=median_window).mean()
+            self._df_transformed['atr_above_mean'] = self._df_transformed['atr'] > self._df_transformed['atr_mean']
+        return self
+
+    def bbands(self, window: int = 20) -> Self:
+        bb_high, bb_mid, bb_low = ta.BBANDS(self.close, timeperiod=window)
+        self._df_transformed["bb_high_rel"] = np.exp(bb_high - self.close) - 1
+        self._df_transformed["bb_mid_rel"] = np.exp(bb_mid - self.close) - 1
+        self._df_transformed["bb_low_rel"] = np.exp(bb_low - self.close) - 1
+        self._df_transformed["bb_width"] = (bb_high - bb_low) / bb_mid
+        return self
+
+    def rsi(self, window: int = 9) -> Self:
+        self._df_transformed["rsi"] = ta.RSI(self.close, timeperiod=window)
+        return self
+    
+    def roc(self,metric: str = "price", window: int = 10) -> Self:
+        if metric == "price":
+            metric_values = self.close
+        elif metric == "volume":
+            metric_values = self.volume
+        self._df_transformed[f"{metric}_rate"] = ta.ROC(metric_values, timeperiod=window)
+        return self
+
+    def macd(self, fastperiod: int = 12, slowperiod: int = 26, signalperiod: int = 9) -> Self:
+        macd, macd_signal, macd_hist = ta.MACD(self.close, fastperiod, slowperiod, signalperiod)
+        self._df_transformed["macd"], self._df_transformed["macd_signal"], self._df_transformed["macd_hist"] = macd, macd_signal, macd_hist
+        return self
+
+    def ema(self, window: int = 20) -> Self:
+        self._df_transformed[f"ema{window}"] = ta.EMA(self.close, timeperiod=window)
+        return self
+
+    def volume_indicators(self) -> Self:
+        self._df_transformed["obv"] = ta.OBV(self.close, self.volume)
+        self._df_transformed["vol_sma"] = pd.Series(self.volume).rolling(20).mean().values
+        self._df_transformed["obv_rel"] = self._df_transformed["obv"] / self._df_transformed["vol_sma"]
+        self._df_transformed["vol_z"] = (self.volume - self.volume.rolling(50).mean()) / self.volume.rolling(50).std()
+        return self
+
+    async def run_in_thread(self, func: Callable[[], T]) -> T:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(_INDICATOR_EXECUTOR, func)
+    
+    
+    async def compute_async(self) -> Self:
+            def compute_all() -> Self:
+                return (
+                    self.atr()
+                    .bbands()
+                    .rsi()
+                    .roc(metric="price")
+                    .roc(metric="volume")
+                    .macd()
+                    .ema()
+                    .volume_indicators()
+                )
+
+            return await self.run_in_thread(compute_all)
 
 class BaseAnalyzer:
     """Base class for volume analysis with technical indicators."""
@@ -37,14 +130,11 @@ class BaseAnalyzer:
     def __init__(
             self, 
             exchange_id: str = "binance", 
-            timeframe: str = '15m', 
-            limit: int = SINCE_24H_AGO_LIMIT,
             ) -> None:
-        self.limit = limit
         self.exchange = None
         self.exchange_id = exchange_id
-        self.timeframe = timeframe
         self.df = pd.DataFrame()
+        self.indicator_computer = IndicatorComputer
 
 
     async def initialize(self) -> None:
@@ -94,128 +184,21 @@ class BaseAnalyzer:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
         return await self.exchange.fetch_tickers()
 
-    async def get_historical_data(self, symbol: str) -> None:
+    async def get_historical_data(self, symbol: str, timeframe: str = '15m', limit: int = SINCE_24H_AGO_LIMIT) -> pd.DataFrame:
         """
-        Fetch historical OHLCV data.
+        Fetch OHLCV data for a single timeframe — stateless.
         
         Raises:
             RuntimeError: If exchange is not initialized.
         """
-        if not self.exchange:
-            raise RuntimeError("Exchange not initialized. Call initialize() first.")
 
-        ohlcv = await self.exchange.fetch_ohlcv(symbol, self.timeframe, limit=self.limit)
-        if ohlcv:
-            self.df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            self.df['event_timestamp'] = pd.to_datetime(self.df['timestamp'], unit='ms')
-
-        else:
-            self.df = pd.DataFrame()
-
-    def calculate_atr(self, window: int = 14) -> None:
-        """Calculate Average True Range (ATR) indicator."""
-        self.df['atr'] = ta.ATR(self.df['high'], self.df['low'], self.df['close'], timeperiod=window)
-        self.df['atr_pct'] = (self.df['atr'] / self.df['close']) * 100
-
-    def get_df(self) -> pd.DataFrame:
-        """
-        Getter method to retrieve the DataFrame.
-        
-        Raises:
-            ValueError: If DataFrame is empty.
-        """
-        if self.df.empty:
-            raise ValueError("DataFrame is empty. Please call get_historical_data first.")
-        return self.df
-
-    def get_rsi(self, metric: str = "close", window: int = 14):
-        """
-        Get RSI indicator.
-        """
-        metric_values = self.df[metric].values
-        self.df["rsi"] = ta.RSI(metric_values, timeperiod=window)
-        
-    def get_roc(self, metric: str = "close", window: int = 10):
-        """
-        Get ROC indicator.
-        """
-        metric_values = self.df[metric].values
-        if metric == "close":
-            self.df["price_rate"] = ta.ROC(metric_values, timeperiod=window)
-        else:
-            self.df[f"{metric}_rate"] = ta.ROC(metric_values, timeperiod=window)
-
-    def get_macd(self, fastperiod: int = 12, slowperiod: int = 26, signalperiod: int = 9):
-        """
-        Get MACD indicator.
-        """
-        close = self.df["close"].values
-
-        macd, macd_signal, macd_hist = ta.MACD(
-            close, 
-            fastperiod=fastperiod, 
-            slowperiod=slowperiod, 
-            signalperiod=signalperiod
-            )
-        self.df["macd"] = macd
-        self.df["macd_signal"] = macd_signal
-        self.df["macd_hist"] = macd_hist
-    
-    def get_atr(self, window: int = 14):
-        """
-        Get ATR indicator.
-        """
-        high = self.df["high"].values
-        low = self.df["low"].values
-        close = self.df["close"].values
-        
-        self.df['atr'] = ta.ATR(high, low, close, timeperiod=window)
-        self.df['atr_pct'] = (self.df['atr'] / close) * 100
-
-    def get_atr_above_median(self):
-        if not "atr" in self.df:
-            msg = "ATR not found in DataFrame. Please call get_atr first."
-            logger.error(msg)
-            raise ValueError(msg)
-        median_window = calculate_correlation(self.df)
-
-        if len(self.df) <= median_window:
-            self.df['atr_mean'] = 0
-            self.df['atr_above_mean'] = False
-            logger.info("Not enough data to compute ATR median.")
-        else:
-            self.df['atr_mean'] = self.df['atr'].rolling(window=median_window).mean()
-            self.df['atr_above_mean'] = self.df['atr'] > self.df['atr_mean']
-
-    def get_bbands(self, window: int = 20):
-        """
-        Get Bollinger Bands indicator.
-        """
-        close = self.df["close"].values
-        self.df["bb_high"], self.df["bb_mid"], self.df["bb_low"] = ta.BBANDS(close, timeperiod=window)
-        self.df["bb_width"] = (self.df["bb_high"] - self.df["bb_low"]) / self.df["bb_mid"]
-
-    def get_ema(self, window: int = 20):
-        """
-        Get EMA indicator.
-        """
-        close = self.df["close"].values
-        self.df[f"ema{window}"] = ta.EMA(close, timeperiod=window)
-
-    def get_obv(self):
-        """
-        Get OBV indicator.
-        """
-        close = self.df["close"].values
-        volume = self.df["volume"].values
-        self.df["obv"] = ta.OBV(close, volume)
-    
-    def get_vol_sma(self, window: int = 20):
-        """
-        Get Volume SMA indicator.
-        """
-        volume = self.df["volume"].values
-        self.df["vol_sma"] = pd.Series(volume).rolling(window).mean().values
+        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        df = pd.DataFrame(
+            ohlcv,
+            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        )
+        df['event_timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
 
 
 class BinanceVolumeAnalyzer(BaseAnalyzer):
@@ -223,29 +206,40 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.df_final_values = pd.DataFrame()
+        self._df_final_values = pd.DataFrame()
 
-    async def process_symbol(self, symbol: str, window: int = 1) -> pd.DataFrame:
+    async def process_symbol(self, symbol: str, timeframe: str = '15m', limit: int = SINCE_24H_AGO_LIMIT, window: int = 1) -> pd.DataFrame:
         """Process individual symbol data."""
-        await self.get_historical_data(symbol)
-        if self.df is not None and len(self.df) > 1:
-            self.get_atr()
-            self.get_roc("close", window)
-            self.get_roc("volume", window)
-            result = self.df.copy()
+        df = await self.get_historical_data(symbol, timeframe, limit)
+        if df is not None and len(df) > 1:
+            indicator_computer = IndicatorComputer(df)
+            await indicator_computer.run_in_thread(
+                lambda: indicator_computer
+                .atr()
+                .roc(metric="price", window=window)
+            )
+            df_transformed = indicator_computer.get_df_transformed()
             match = re.match(r"^[^/ \s]*", symbol)
-            result['symbol'] = match.group(0) if match else symbol
+            df_transformed['symbol'] = match.group(0) if match else symbol
 
-            return result.iloc[[-1]]
+            return df_transformed.iloc[[-1]]
         return pd.DataFrame()
 
-    async def calculate_market_spikes(self) -> None:
+    async def calculate_market_spikes(
+        self,
+        timeframe: str = '15m',
+        limit: int = SINCE_24H_AGO_LIMIT,
+        max_concurrency: int = 100
+        ) -> pd.DataFrame:
         """
         Process all USDT futures pairs, calculate price and volume changes,
         and aggregate the latest results. Raises if no significant changes found.
         """
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
+        
+        if max_concurrency <= 0:
+            raise ValueError("max_concurrency must be greater than zero")
 
         dataframes = []
         tickers = await self.get_futures_tickers()
@@ -257,8 +251,14 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
             logger.warning("No USDT pairs found in tickers.")
             raise RuntimeWarning("No USDT pairs available for analysis")
 
-        # Asynchronously process each USDT pair to compute indicators
-        tasks = [self.process_symbol(symbol) for symbol in usdt_pairs]
+         # Asynchronously process each USDT pair to compute indicators with throttling
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        async def guarded_process(symbol: str) -> pd.DataFrame:
+            async with semaphore:
+                return await self.process_symbol(symbol, timeframe, limit)
+
+        tasks = [asyncio.create_task(guarded_process(symbol)) for symbol in usdt_pairs]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for symbol, result in zip(usdt_pairs, results):
@@ -270,16 +270,18 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
                 dataframes.append(result)
 
         if not dataframes:
-            logger.info("No significant volume changes detected.")
-            raise RuntimeWarning("No significant volume changes at the moment")
+            msg = "No significant volume changes at the moment"
+            logger.info(msg)
+            raise RuntimeWarning(msg)
+
 
         # Combine all processed DataFrames into one for further use
-        self.df_final_values = pd.concat(dataframes, ignore_index=True)
+        self._df_final_values = pd.concat(dataframes, ignore_index=True)
 
 
     def get_top_symbols(
         self, 
-        metric: str = "volume_rate", 
+        metric: str = "price_rate", 
         ascending: bool = False,
         n_values: int = 3
     ) -> list[dict[str, Any]]:
@@ -293,29 +295,29 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         - Ensures only valid columns are selected.
         - Returns an empty list if metric is not present.
         """
-        if self.df_final_values.empty:
+        if self._df_final_values.empty:
             logger.warning("DataFrame is empty. Please call calculate_market_spikes first.")
             raise ValueError("DataFrame is empty. Please call calculate_market_spikes first.")
 
-        if metric not in self.df_final_values.columns:
+        if metric not in self._df_final_values.columns:
             logger.warning(f"Metric '{metric}' not found in DataFrame columns.")
             raise ValueError(f"Metric '{metric}' not found in DataFrame columns.")
 
         df_sorted = (
-            self.df_final_values[['symbol', 'event_timestamp', 'price_rate', 'volume_rate', 'atr_pct', 'close']].copy()
+            self._df_final_values[['symbol', 'event_timestamp', 'price_rate', 'atr_pct', 'close']].copy()
             .sort_values(by=metric, ascending=ascending)
             .head(n_values)
             .reset_index(drop=True)
         )
 
         # Initialize both columns as False
-        df_sorted["is_price_event"] = False
-        df_sorted["is_volume_event"] = False
+        # df_sorted["is_price_event"] = False
+        # df_sorted["is_volume_event"] = False
 
-        if metric == "price_rate":
-            df_sorted["is_price_event"] = True
-        elif metric == "volume_rate":
-            df_sorted["is_volume_event"] = True
+        # if metric == "price_rate":
+        #     df_sorted["is_price_event"] = True
+        # elif metric == "volume_rate":
+        #     df_sorted["is_volume_event"] = True
 
         return df_sorted
 
@@ -342,43 +344,14 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
     def add_technical_indicators(self):
         """
         Add technical indicators to the dataframe.
+        
         """
-        self.df_final = self.df.copy()
-        close = self.df_final["close"].values
-        high = self.df_final["high"].values
-        low = self.df_final["low"].values
-        volume = self.df_final["volume"].values
+        self.df_final = self.indicator_computer.compute_all(self.df.copy())
+        # Normalize the MACD indicators by the ATR
+        self.df_final["macd"] = self.df_final["macd"] / self.df_final["atr"]
+        self.df_final["macd_signal"] = self.df_final["macd_signal"] / self.df_final["atr"]
+        self.df_final["macd_hist"] = self.df_final["macd_hist"] / self.df_final["atr"]
 
-        # RSI calculation
-        self.df_final["rsi"] = ta.RSI(close, timeperiod=14)
-
-        # ROC calculation
-        self.df_final["roc"] = ta.ROC(close, timeperiod=10)
-
-        # MACD calculation
-        macd, macd_signal, macd_hist = ta.MACD(close, fastperiod=12, slowperiod=26, signalperiod=9)
-        self.df_final["macd"] = macd
-        self.df_final["macd_signal"] = macd_signal
-        self.df_final["macd_hist"] = macd_hist
-
-        # ATR calculation
-        self.df_final["atr"] = ta.ATR(high, low, close, timeperiod=14)
-
-        # Bollinger Bands calculation
-        self.df_final["bb_high"], self.df_final["bb_mid"], self.df_final["bb_low"] = ta.BBANDS(close, timeperiod=20)
-        self.df_final["bb_width"] = (self.df_final["bb_high"] - self.df_final["bb_low"]) / self.df_final["bb_mid"]
-
-        # EMA calculations
-        self.df_final["ema20"] = ta.EMA(close, timeperiod=20)
-        self.df_final["ema50"] = ta.EMA(close, timeperiod=50)
-
-        # OBV calculation
-        self.df_final["obv"] = ta.OBV(close, volume)
-
-        # Volume SMA calculation
-        self.df_final["vol_sma"] = pd.Series(volume).rolling(20).mean().values
-        
-        
         self.df_final.dropna(inplace=True)
     
     def generate_targets(self, window=10, quantile_level=0.8):
@@ -590,13 +563,12 @@ class PaginationParams:
 def format_message_spikes(*args: Dict[str, Any]) -> str:
     """
     Formats message data from multiple dictionaries, filtering out messages
-    where both price changes are less than MIN_PRICE_CHANGE and volume change 
-    is less than MIN_VOLUME_CHANGE.
+    where the price changes are less than MIN_PRICE_CHANGE.
 
     Args:
         *args: Variable number of dictionaries containing message data.
                Each dictionary should have the keys:
-               - 'symbol', 'price_rate', 'volume_rate', 'atr_pct', 'close'
+               - 'symbol', 'price_rate', 'atr_pct', 'close'
 
     Returns:
         str: A formatted string containing all messages that meet the
@@ -610,26 +582,23 @@ def format_message_spikes(*args: Dict[str, Any]) -> str:
         except (TypeError, ValueError):
             return 0.0
 
-    for raw in sorted(args, key=safe_float, reverse=True):
-        try:   
-            price_rate = float(raw.get('price_rate', 0))
-            volume_rate = float(raw.get('volume_rate', 0))
-            atr_pct = float(raw.get('atr_pct', 0))
-            close = float(raw.get('close', 0))
-        except ValueError:
+    # for raw in sorted(args, key=safe_float, reverse=True):
+    #     try:   
+    #         price_rate = float(raw.get('price_rate', 0))
+    #         atr_pct = float(raw.get('atr_pct', 0))
+    #         close = float(raw.get('close', 0))
+    #     except ValueError:
+    #         continue
+    for raw in args:
+        if abs(safe_float(raw)) < MIN_PRICE_CHANGE:
             continue
-
-        if abs(price_rate) < MIN_PRICE_CHANGE and volume_rate < MIN_VOLUME_CHANGE:
-            continue
-
         # Build message using f-string
         messages.append(
             (
                 f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
-                f"Price Change: {price_rate:.2f}%\n"
-                f"Volume Change: {volume_rate:.2f}%\n"
-                f"ATR Percentage: {atr_pct:.2f}%\n"
-                f"Close Price: {close}\n"
+                f"Price Change: {raw.get('price_rate', 0):.2f}%\n"
+                f"ATR Percentage: {raw.get('atr_pct', 0):.2f}%\n"
+                f"Close Price: {raw.get('close', 0)}\n"
                 f"──────────────"
             )
         )

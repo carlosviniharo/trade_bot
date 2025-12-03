@@ -22,10 +22,7 @@ class User(UserBase):
 class MarketEvent(BaseModel):
     symbol: str
     event_timestamp: datetime
-    is_price_event: bool = False
-    is_volume_event: bool = False
     price_rate: Optional[float] = 0
-    volume_rate: Optional[float] = 0
     atr_pct: Optional[float] = 0
     close: float
     date_of_creation: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -1,8 +1,10 @@
 # routers/user_router.py
+from typing import List
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Query, Depends
 from app.models.market_models import (
     AtrResults,
+    MarketEventRead,
     User,
     UserCreate,
     MarketEvent,
@@ -14,6 +16,7 @@ from app.models.market_models import (
 )
 from app.services.market_services import (
     create_user,
+    get_online_market_event,
     get_user,
     list_users,
     update_user,
@@ -22,7 +25,8 @@ from app.services.market_services import (
     create_market_event,
     list_market_events,
     send_messages,
-    get_market_sentiment, send_messages_tg,
+    get_market_sentiment, 
+    send_messages_tg,
     get_xgboosr_prediction
 )
 from app.utils.helper import PaginationParams
@@ -61,6 +65,10 @@ async def delete_user_by_id(user_id: str):
 @router.post("/marketEvents/", response_model=MarketEvent)
 async def create_new_market_event(market_event: MarketEventCreate):
     return await create_market_event(market_event)
+
+@router.get("/bestMarketEvents/", response_model=List[MarketEvent])
+async def get_best_market_events():
+    return await get_online_market_event()
 
 @router.get("/marketEvents/", response_model=PaginatedResponse)
 async def get_list_market_events(params: PaginationParams = Depends()) -> PaginatedResponse:

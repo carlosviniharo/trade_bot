@@ -1,8 +1,10 @@
 # services/user_service.py
 import asyncio
+from typing import List
 
 from bson import ObjectId
 from fastapi import HTTPException
+import pandas as pd
 
 from app.core.logging import AppLogger
 from app.models.market_models import (
@@ -19,7 +21,9 @@ from app.models.market_models import (
     )
 from app.core.database import get_database
 from app.utils.helper import (
-    BaseAnalyzer, 
+    BaseAnalyzer,
+    BinanceVolumeAnalyzer,
+    IndicatorComputer, 
     MarketSentimentAnalyzer, 
     PaginationParams,
     XGBoostSupportResistancePredictor, 
@@ -99,6 +103,28 @@ async def create_market_event(market_event: MarketEventCreate):
     return market_events_helper(record)
 
 
+async def get_online_market_event() -> List[MarketEvent]:
+    analyzer = BinanceVolumeAnalyzer()
+
+    try:
+        await analyzer.initialize()
+        await analyzer.calculate_market_spikes()
+        
+        df_top_price_increase = analyzer.get_top_symbols(metric="price_rate")
+        df_top_price_decrease = analyzer.get_top_symbols(metric="price_rate", ascending=True)
+
+        df_merged = pd.concat([df_top_price_increase, df_top_price_decrease])
+        # df_merged = df_merged.groupby(["symbol", "event_timestamp"], as_index=False).agg({
+        #     "price_rate": "first",
+        #     "atr_pct": "first",
+        #     "close": "first",
+        # })
+        return [MarketEvent(**event) for event in df_merged.to_dict(orient="records")]
+   
+    finally:
+        await analyzer.close()
+
+
 async def list_market_events(params: PaginationParams):
     db = await get_database()
     market_events_collection = db["market_events"]
@@ -119,47 +145,41 @@ async def list_market_events(params: PaginationParams):
     )
 
 
-async def run_analyzer(symbol: str, timeframe: str) -> AtrResult | None:
-    analyzer = BaseAnalyzer(timeframe=timeframe, limit=500)
-    try:
-        await analyzer.initialize()
-        await analyzer.get_historical_data(symbol)
+async def compute_atr_from_df(df: pd.DataFrame, timeframe: str):
+    indicator = IndicatorComputer(df.copy())
+    await indicator.run_in_thread(lambda: indicator.atr().get_atr_above_median())
+    df_atr = indicator.get_df_transformed()
 
-        # Run CPU-bound tasks concurrently in threads
-        await asyncio.to_thread(analyzer.get_atr)
-        await asyncio.to_thread(analyzer.get_atr_above_median)
-    
-        # Get DataFrame after calculations finish
-        df = analyzer.get_df().copy()
+    if df_atr.empty:
+        return None
 
-
-        if df.empty:
-            return None
-
-        atr_data_dict = df.iloc[-1].to_dict()
-        atr_data_dict["timeframe"] = timeframe
-        return AtrResult(**atr_data_dict)
-
-    finally:
-        await analyzer.close()
+    payload = df_atr.iloc[-1].to_dict()
+    payload["timeframe"] = timeframe
+    return AtrResult(**payload)
 
 
 async def get_atr(symbol: str) -> AtrResults:
     symbol = format_symbol_name(symbol)
-    result = []
+    analyzer = BaseAnalyzer()
 
-    # Run all timeframes concurrently
-    tasks = [run_analyzer(symbol, tf) for tf in ["1m", "5m", "15m"]]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    try:
+        await analyzer.initialize()
 
-    for r in results:
-        if isinstance(r, Exception):
-            raise HTTPException(status_code=500, detail=f"An error occurred: {str(r)}")
-        if r is None:
-            raise HTTPException(status_code=404, detail=f"No ATR data found for symbol '{symbol}'")
-        result.append(r)
+        async def fetch(tf: str):
+            df = await analyzer.get_historical_data(symbol, tf, limit=500)
+            return await compute_atr_from_df(df, tf)
 
-    return AtrResults(atr_results=result)
+        timeframes = ["1m", "5m", "15m"]
+
+        results = await asyncio.gather(
+            *(fetch(tf) for tf in timeframes),
+            return_exceptions=True
+        )
+
+        return AtrResults(atr_results=results)
+
+    finally:
+        await analyzer.close()
 
 
 async def send_messages(message):
@@ -202,7 +222,7 @@ async def get_market_sentiment() -> MarketSentiment:
 
 
 async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredictionResult:
-    analyzer = XGBoostSupportResistancePredictor(timeframe=time_frame, limit=1000)
+    analyzer = XGBoostSupportResistancePredictor(timeframe=time_frame, limit=1000, use_log=True)
     symbol = format_symbol_name(symbol)
 
     try:
