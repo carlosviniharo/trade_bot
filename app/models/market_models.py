@@ -66,8 +66,12 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
 
 class XGBoostPredictionResult(BaseModel):
-    message: str
     time_frame: str
-    prediction_confidence: float
-    latest_predicted_resistance: float
-    latest_predicted_support: float
+    current_price: float
+    resistance: float
+    support: float
+    upside_pct: float
+    downside_pct: float
+    risk_reward_ratio: float
+    timestamp: datetime
+    prediction_time_ms: float

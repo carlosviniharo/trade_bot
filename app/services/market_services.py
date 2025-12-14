@@ -10,7 +10,7 @@ from app.core.logging import AppLogger
 from app.models.market_models import (
     AtrResult,
     AtrResults,
-    User, 
+    User,
     UserCreate, 
     MarketEvent, 
     MarketEventCreate, 
@@ -147,7 +147,7 @@ async def list_market_events(params: PaginationParams):
 
 async def compute_atr_from_df(df: pd.DataFrame, timeframe: str):
     indicator = IndicatorComputer(df.copy())
-    await indicator.run_in_thread(lambda: indicator.atr().get_atr_above_median())
+    await indicator.run_in_thread(lambda: indicator.compute_atr().compute_atr_above_mean())
     df_atr = indicator.get_df_transformed()
 
     if df_atr.empty:
@@ -222,17 +222,32 @@ async def get_market_sentiment() -> MarketSentiment:
 
 
 async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredictionResult:
-    analyzer = XGBoostSupportResistancePredictor(timeframe=time_frame, limit=1000, use_log=True)
+    predictor = XGBoostSupportResistancePredictor(
+        window=10,
+        n_splits=5,
+        tune_hyperparams=True,  # Set to False for faster training
+        use_optuna=True  # Set to False to use GridSearchCV instead
+    )
     symbol = format_symbol_name(symbol)
 
     try:
-        await analyzer.initialize()
-        await analyzer.get_historical_data(symbol)
-        analyzer.add_technical_indicators()
-        analyzer.generate_targets()
-        response = analyzer.train_xgb_models()
-        return XGBoostPredictionResult(**response)
+        await predictor.initialize()
+        df = await predictor.get_historical_data(symbol, timeframe=time_frame, limit=1000)
+        
+        logger.info(f"\nData shape: {df.shape}")
+        logger.info(f"Date range: {df.index.min()} to {df.index.max()}")
+        logger.info("\n" + "=" * 60)
+        logger.info("STARTING TRAINING PIPELINE")
+        logger.info("=" * 60)
+    
+        await predictor.train(df)
+
+        logger.info("\n" + "=" * 60)
+
+        prediction =await predictor.predict_latest()
+        prediction['time_frame'] = time_frame
+        return XGBoostPredictionResult(**prediction)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
-        await analyzer.close()
+        await predictor.close()
