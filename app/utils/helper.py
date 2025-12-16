@@ -957,13 +957,15 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         risk_reward = abs(upside_pct / downside_pct) if downside_pct != 0 else 0
         
         elapsed_time = time.time() - start_time
+
+        smart_round = lambda x: float("{:.4g}".format(x) if abs(x) < 1 else "{:.4f}".format(x))
         
         return {
             "current_price": latest_close,
-            "resistance": latest_resistance,
-            "support": latest_support,
-            "upside_pct": upside_pct,
-            "downside_pct": downside_pct,
+            "resistance": smart_round(latest_resistance),
+            "support":smart_round(latest_support),
+            "upside_pct": round(upside_pct, 2),
+            "downside_pct": round(downside_pct, 2),
             "risk_reward_ratio": risk_reward,
             "timestamp": recent_df.index[-1],
             "prediction_time_ms": elapsed_time * 1000  # Convert to milliseconds
