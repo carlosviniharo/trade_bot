@@ -1,22 +1,24 @@
 import asyncio
-from concurrent.futures.thread import ThreadPoolExecutor
 import re
+import time
 import traceback
+from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, Self, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Self, Tuple, TypeVar
 
 import numpy as np
 import pandas as pd
 import requests
 import talib as ta
 from fastapi import Query
+from sklearn.feature_selection import VarianceThreshold
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
-from sklearn.feature_selection import VarianceThreshold
 from statsmodels.tsa.stattools import acf
 from xgboost import XGBRegressor
 
 import ccxt.async_support as ccxt_async
+
 from app.core.logging import AppLogger
 
 # Initialize logging
@@ -163,7 +165,9 @@ class BaseAnalyzer:
 
 
     async def initialize(self) -> None:
-        """Initialize the Binance futures exchange."""
+        """
+        Initialize the Binance futures exchange.
+        """
 
         if self.exchange_id == "binance":
             self.exchange = ccxt_async.binance({
@@ -181,7 +185,9 @@ class BaseAnalyzer:
             raise ValueError(f"Invalid exchange ID: {self.exchange_id}")
 
     async def close(self) -> None:
-        """Properly close the exchange connection and underlying aiohttp session."""
+        """
+        Properly close the exchange connection and underlying aiohttp session.
+        """
         if self.exchange:
             try:
                 # Try ccxt's own close (closes session in most cases)
@@ -198,16 +204,26 @@ class BaseAnalyzer:
             finally:
                 self.exchange = None
 
-    async def get_futures_tickers(self) -> Dict[str, Any]:
+    async def get_futures_pairs(self, pair:str = 'USDT') -> Dict[str, Any]:
         """
-        Fetch all future tickers.
+        Fetch all future tickets pairs.
         
         Raises:
             RuntimeError: If exchange is not initialized.
         """
         if not self.exchange:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
-        return await self.exchange.fetch_tickers()
+
+        data = await self.exchange.fetch_tickers()
+        
+        pairs = [s for s in data.keys() if s.endswith(pair)]
+        
+        if not pairs:
+            msg = f"No {pair} pairs found."
+            logger.warning(msg)
+            raise RuntimeWarning(msg)
+            
+        return pairs
 
     async def get_historical_data(self, symbol: str, timeframe: str = '15m', limit: int = SINCE_24H_AGO_LIMIT) -> pd.DataFrame:
         """
@@ -240,7 +256,9 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         limit: int = SINCE_24H_AGO_LIMIT,
         window: int = 1
     ) -> pd.DataFrame:
-        """Process individual symbol data."""
+        """
+        Process individual symbol data.
+        """
         df = await self.get_historical_data(symbol, timeframe, limit)
 
         if df is not None and len(df) > 1:
@@ -267,53 +285,51 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         and aggregate the latest results. Raises if no significant changes found.
         """
 
+        # --- 1. Validation & Setup ---
         if not self.exchange:
-            raise RuntimeError("Exchange not initialized. Call initialize() first.")
+            raise RuntimeError("Exchange not initialized.")
+            
+        usdt_pairs = await self.get_futures_pairs()
 
-        if max_concurrency <= 0:
-            raise ValueError("max_concurrency must be greater than zero")
-
-        dataframes = []
-        tickers = await self.get_futures_tickers()
-        usdt_pairs = [symbol for symbol in tickers.keys() if symbol.endswith('USDT')]
-
-        if not usdt_pairs:
-            logger.warning("No USDT pairs found in tickers.")
-            raise RuntimeWarning("No USDT pairs available for analysis")
-
-        # Asynchronously process each USDT pair to compute indicators with throttling
+        # --- 2. The Clean Worker ---
+        # We define the worker here to capture 'semaphore', 'timeframe', etc.
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def guarded_process(symbol: str) -> pd.DataFrame:
+        async def fetch_pair(symbol: str) -> None:
             async with semaphore:
-                return await self.process_symbol(symbol, timeframe, limit)
+                try:
+                    # Try to get the dataframe
+                    df = await self.process_symbol(symbol, timeframe, limit)
+                    # Return it only if it has data
+                    return df if not df.empty else None
+                except Exception as e:
+                    # Log immediately while we still have the 'symbol' context
+                    logger.warning(f"[{symbol}] Task failed: {e}")
+                    logger.debug(traceback.format_exc())
+                    return None
 
-        tasks = [asyncio.create_task(guarded_process(symbol)) for symbol in usdt_pairs]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # --- 3. Execution ---
+        # We run all tasks. If they fail, they return None (safely).
+        tasks = [fetch_pair(symbol) for symbol in usdt_pairs]
+        results = await asyncio.gather(*tasks)
 
-        for symbol, result in zip(usdt_pairs, results):
-            if isinstance(result, Exception):
-                logger.warning(f"[{symbol}] Task failed: {type(result).__name__} - {result}")
-                logger.debug(traceback.format_exc())
-                continue
-            if isinstance(result, pd.DataFrame) and not result.empty:
-                dataframes.append(result)
+        # --- 4. Final Aggregation ---
+        # Filter out the Nones in one clean line
+        valid_dfs = [res for res in results if res is not None]
 
-        if not dataframes:
-            msg = "No significant volume changes at the moment"
-            logger.info(msg)
-            raise RuntimeWarning(msg)
+        if not valid_dfs:
+            logger.info("No significant price rate at the moment")
+            raise RuntimeWarning("No significant price rate")
 
-
-        # Combine all processed DataFrames into one for further use
-        self._df_final_values = pd.concat(dataframes, ignore_index=True)
+        self._df_final_values = pd.concat(valid_dfs, ignore_index=True)
 
 
     def get_top_symbols(
         self, 
         metric: str = "price_rate", 
         ascending: bool = False,
-        n_values: int = 3
+        n_values: int = 3,
+        threshold: int = 1
     ) -> pd.DataFrame:
         """
         Return a DataFrame with the top symbols ranked by the specified metric.
@@ -328,34 +344,25 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
             raise ValueError("DataFrame is empty. Please call calculate_market_spikes first.")
 
         if metric not in ["price_rate", "volume_rate"]:
-            msg = f"Unsupported metric '{metric}'. Expected 'price_rate' or 'volume_rate'."
+            msg = f"Unsupported metric '{metric}'. Expected 'price_rate'."
             logger.error(msg)
             raise ValueError(msg)
 
         df_sorted = (
             self._df_final_values[['symbol', 'event_timestamp', 'price_rate', 'atr_pct', 'close']].copy()
+            .loc[lambda x: abs(x['price_rate']) > threshold]
             .sort_values(by=metric, ascending=ascending)
             .head(n_values)
             .reset_index(drop=True)
         )
 
-        # Initialize both columns as False
-        # df_sorted["is_price_event"] = False
-        # df_sorted["is_volume_event"] = False
-
-        # if metric == "price_rate":
-        #     df_sorted["is_price_event"] = True
-        # elif metric == "volume_rate":
-        #     df_sorted["is_volume_event"] = True
-
         return df_sorted
 
 
 class XGBoostSupportResistancePredictor(BaseAnalyzer):
-    """
-    XGBoostSupportResistancePredictor uses XGBoost machine learning to predict
-    cryptocurrency support and resistance levels using technical indicators.
-    """
+    """XGBoostSupportResistancePredictor uses XGBoost machine learning to predict 
+    cryptocurrency support and resistance levels using technical indicators."""
+
     def __init__(self, window: int = 10, n_splits: int = 5, tune_hyperparams: bool = True, use_optuna: bool = False, **kwargs) -> None:
         super().__init__(**kwargs)
         self.df_final = pd.DataFrame()
@@ -372,14 +379,8 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         self.best_params_low = None
 
     async def get_historical_data(self, symbol: str, timeframe: str = '15m', limit: int = SINCE_24H_AGO_LIMIT) -> pd.DataFrame:
-
-        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-        if ohlcv:
-            df = pd.DataFrame(
-                ohlcv, 
-                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-                )
-            df['event_timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df = await super().get_historical_data(symbol, timeframe, limit)
+        if not df.empty:
             df.set_index("timestamp", inplace=True)
             return df
         return pd.DataFrame()
@@ -573,6 +574,11 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
 
         logger.info("Tuning hyperparameters for %s using Optuna...", model_name)
         logger.info("Running %s trials (GridSearch would run 324)...", n_trials)
+
+        # Pre-define split indices to save time inside the loop
+        tscv = TimeSeriesSplit(n_splits=3)
+        # Generate indices once
+        cv_indices = list(tscv.split(X_train))
         
         # Define objective function
         def objective(trial):
@@ -589,11 +595,9 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
                 'reg_lambda': trial.suggest_float('reg_lambda', 0.0, 1.0),
             }
             
-            # Time-series cross-validation
-            tscv = TimeSeriesSplit(n_splits=3)
             scores = []
             
-            for train_idx, val_idx in tscv.split(X_train):
+            for train_idx, val_idx in cv_indices:
                 X_tr, X_val = X_train.iloc[train_idx], X_train.iloc[val_idx]
                 y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
                 
@@ -670,7 +674,7 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         
         return grid_search.best_params_
 
-    async def train(self, df, refit_features_each_fold=False):
+    async def train(self, df, refit_features_each_fold=False, xgb_callbacks=None):
         """
         Train models with proper time-series cross-validation.
         Includes feature selection and hyperparameter tuning.
@@ -678,19 +682,7 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         Args:
             df: DataFrame with OHLCV data
             refit_features_each_fold: If True, recalculate feature selection per fold.
-                                     If False (default), do it once on first fold (faster, usually fine)
-        
-        Note on Feature Calculation vs Selection:
-        -----------------------------------------
-        1. FEATURE CALCULATION (add_features): Done ONCE before CV
-           - Technical indicators use only historical data (no lookahead)
-           - Safe to calculate on full dataset before splitting
-           
-        2. FEATURE SELECTION (select_features): Done per fold OR once
-           - Variance thresholds and correlations are data statistics
-           - Should be fit on TRAINING data only to avoid leakage
-           - Can reuse first fold's selection for speed (refit_features_each_fold=False)
-           - Or recalculate per fold for strictness (refit_features_each_fold=True)
+            xgb_callbacks: Optional list of XGBoost callbacks.
         """
         # Add features and targets
         await self.add_features(df, fast_mode=True)  # Use accurate mode for training
@@ -710,191 +702,170 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         logger.info("Training on %s samples", len(df))
         logger.info("Initial feature count: %s", len(all_feature_cols))
         logger.info("Predicting %s-candle forward S/R levels", self.window)
-        
-        # Time-series cross-validation
-        tscv = TimeSeriesSplit(n_splits=self.n_splits)
-        
-        high_scores = []
-        low_scores = []
-        
-        # Reset feature selection state
-        self.variance_selector = None
-        self.corr_features_to_drop = []
-        
-        for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
-            logger.info("%s", "=" * 60)
-            logger.info("Fold %s/%s", fold + 1, self.n_splits)
-            logger.info("%s", "=" * 60)
+
+        def _train_sync():
+            # Time-series cross-validation
+            tscv = TimeSeriesSplit(n_splits=self.n_splits)
             
-            X_train_raw, X_test_raw = X.iloc[train_idx], X.iloc[test_idx]
-            y_high_train, y_high_test = y_high.iloc[train_idx], y_high.iloc[test_idx]
-            y_low_train, y_low_test = y_low.iloc[train_idx], y_low.iloc[test_idx]
+            high_scores = []
+            low_scores = []
             
-            # Feature selection logic:
-            # - If refit_features_each_fold=True: Select features in EVERY fold (reset selectors each time)
-            # - If refit_features_each_fold=False: Select features ONCE in fold 0, reuse for all other folds
+            # Reset feature selection state
+            self.variance_selector = None
+            self.corr_features_to_drop = []
             
-            if refit_features_each_fold:
-                # Reset selectors for each fold (strict validation)
-                if fold > 0:
-                    self.variance_selector = None
-                    self.corr_features_to_drop = []
+            for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
+                logger.info("%s", "=" * 60)
+                logger.info("Fold %s/%s", fold + 1, self.n_splits)
+                logger.info("%s", "=" * 60)
                 
-                # Select features on current fold's training data
-                X_train, X_test, selected_features = self.select_features(
-                    X_train_raw, X_test_raw,
-                    variance_threshold=0.01,
-                    correlation_threshold=0.85
-                )
+                X_train_raw, X_test_raw = X.iloc[train_idx], X.iloc[test_idx]
+                y_high_train, y_high_test = y_high.iloc[train_idx], y_high.iloc[test_idx]
+                y_low_train, y_low_test = y_low.iloc[train_idx], y_low.iloc[test_idx]
                 
-                # IMPORTANT: Save features from LAST fold (most recent data)
-                # This will be used for the final model trained on full dataset
-                self.feature_cols = selected_features
-            
-            elif fold == 0:
-                # First fold: select features and save them
-                X_train, X_test, selected_features = self.select_features(
-                    X_train_raw, X_test_raw,
-                    variance_threshold=0.01,
-                    correlation_threshold=0.85
-                )
-                self.feature_cols = selected_features
-            
-            else:
-                # Subsequent folds: reuse features from fold 0 (fast mode)
-                X_train = X_train_raw[self.feature_cols].fillna(0)
-                X_test = X_test_raw[self.feature_cols].fillna(0)
-            
-            # Hyperparameter tuning (only on first fold to save time)
-            if fold == 0 and self.tune_hyperparams:               
-                if self.use_optuna:
-                    logger.info("HYPERPARAMETER TUNING with OPTUNA (using first fold)")
-                    logger.info("%s", "=" * 60)
-                    self.best_params_high = self.tune_hyperparameters_optuna(
-                        X_train, y_high_train, "Resistance Model", n_trials=50
+                # Feature selection logic:
+                if refit_features_each_fold:
+                    if fold > 0:
+                        self.variance_selector = None
+                        self.corr_features_to_drop = []
+                    
+                    X_train, X_test, selected_features = self.select_features(
+                        X_train_raw, X_test_raw,
+                        variance_threshold=0.01,
+                        correlation_threshold=0.85
                     )
-                    self.best_params_low = self.tune_hyperparameters_optuna(
-                        X_train, y_low_train, "Support Model", n_trials=50
+                    self.feature_cols = selected_features
+                
+                elif fold == 0:
+                    X_train, X_test, selected_features = self.select_features(
+                        X_train_raw, X_test_raw,
+                        variance_threshold=0.01,
+                        correlation_threshold=0.85
                     )
+                    self.feature_cols = selected_features
+                
                 else:
-                    logger.info("HYPERPARAMETER TUNING with GRIDSEARCH (using first fold)")
-                    logger.info("%s", "=" * 60)
-                    self.best_params_high = self.tune_hyperparameters(
-                        X_train, y_high_train, "Resistance Model"
-                    )
-                    self.best_params_low = self.tune_hyperparameters(
-                        X_train, y_low_train, "Support Model"
-                    )
-            elif fold == 0 and not self.tune_hyperparams:
-                # Use default good parameters
-                self.best_params_high = {
-                    'n_estimators': 300, 'max_depth': 4, 'learning_rate': 0.05,
-                    'min_child_weight': 3, 'subsample': 0.8, 'colsample_bytree': 0.8
-                }
-                self.best_params_low = self.best_params_high.copy()
-            
-            # Train models with best parameters
-            xgb_high = XGBRegressor(**self.best_params_high, random_state=42)
-            xgb_low = XGBRegressor(**self.best_params_low, random_state=42)
-            
-            xgb_high.fit(X_train, y_high_train)
-            xgb_low.fit(X_train, y_low_train)
-            
-            # Evaluate
-            y_high_pred = xgb_high.predict(X_test)
-            y_low_pred = xgb_low.predict(X_test)
-            
-            # Baseline (predict mean)
-            baseline_high_pred = np.full_like(y_high_test, y_high_train.mean())
-            baseline_low_pred = np.full_like(y_low_test, y_low_train.mean())
-            
-            # Metrics
-            rmse_high = np.sqrt(mean_squared_error(y_high_test, y_high_pred))
-            rmse_low = np.sqrt(mean_squared_error(y_low_test, y_low_pred))
-            
-            r2_high = r2_score(y_high_test, y_high_pred)
-            r2_low = r2_score(y_low_test, y_low_pred)
-            
-            baseline_r2_high = r2_score(y_high_test, baseline_high_pred)
-            baseline_r2_low = r2_score(y_low_test, baseline_low_pred)
-            
-            high_scores.append((rmse_high, r2_high))
-            low_scores.append((rmse_low, r2_low))
-            
-            logger.info(
-                "Fold %s Results: Resistance RMSE=%.4f, R²=%.4f (baseline R²=%.4f)",
-                fold + 1,
-                rmse_high,
-                r2_high,
-                baseline_r2_high,
-            )
-            logger.info(
-                "Fold %s Results: Support RMSE=%.4f, R²=%.4f (baseline R²=%.4f)",
-                fold + 1,
-                rmse_low,
-                r2_low,
-                baseline_r2_low,
-            )
-            
-            # Feature importance (only for first fold)
-            if fold == 0:
-                importance_high = pd.DataFrame({
-                    'feature': selected_features,
-                    'importance': xgb_high.feature_importances_
-                }).sort_values('importance', ascending=False)
+                    X_train = X_train_raw[self.feature_cols].fillna(0)
+                    X_test = X_test_raw[self.feature_cols].fillna(0)
                 
-                logger.info("Top 10 Features for Resistance:\n%s", importance_high.head(10).to_string(index=False))
-        
-        # Print average scores
-        logger.info("%s", "=" * 60)
-        logger.info("AVERAGE CROSS-VALIDATION RESULTS")
-        logger.info("%s", "=" * 60)
-        
-        avg_rmse_high = np.mean([s[0] for s in high_scores])
-        avg_r2_high = np.mean([s[1] for s in high_scores])
-        avg_rmse_low = np.mean([s[0] for s in low_scores])
-        avg_r2_low = np.mean([s[1] for s in low_scores])
-        
-        logger.info("Resistance: RMSE=%.4f, R²=%.4f", avg_rmse_high, avg_r2_high)
-        logger.info("Support: RMSE=%.4f, R²=%.4f", avg_rmse_low, avg_r2_low)
-        
-        # Train final models on ALL data with selected features
-        logger.info("%s", "=" * 60)
-        logger.info("TRAINING FINAL MODELS ON FULL DATASET")
-        logger.info("%s", "=" * 60)
-        
-        # OPTION 1: Use features from last fold (most recent data)
-        # Already saved in self.feature_cols from loop above
-        
-        # OPTION 2 (OPTIONAL): Recompute feature selection on FULL dataset
-        # This gives the most representative features for the final model
-        # Uncomment if you want this behavior:
-        
-        # print("Recomputing feature selection on full dataset...")
-        # final_variance_selector = VarianceThreshold(threshold=0.01)
-        # final_variance_selector.fit(X.fillna(0))
-        # variance_mask = final_variance_selector.get_support()
-        # X_var_selected = X.loc[:, variance_mask]
-        
-        # corr_matrix = X_var_selected.corr().abs()
-        # upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-        # final_corr_drop = [col for col in upper.columns if any(upper[col] > 0.85)]
-        # self.feature_cols = [col for col in X_var_selected.columns if col not in final_corr_drop]
-        # print(f"Final feature count (recomputed on full data): {len(self.feature_cols)}")
-        
-        X_full = X[self.feature_cols].copy()
-        
-        self.model_high = XGBRegressor(**self.best_params_high, random_state=42)
-        self.model_low = XGBRegressor(**self.best_params_low, random_state=42)
-        
-        self.model_high.fit(X_full, y_high)
-        self.model_low.fit(X_full, y_low)
-        
-        logger.info("Final models trained with %s features", len(self.feature_cols))
+                # Hyperparameter tuning (only on first fold to save time)
+                if fold == 0 and self.tune_hyperparams:               
+                    if self.use_optuna:
+                        logger.info("HYPERPARAMETER TUNING with OPTUNA (using first fold)")
+                        logger.info("%s", "=" * 60)
+                        self.best_params_high = self.tune_hyperparameters_optuna(
+                            X_train, y_high_train, "Resistance Model", n_trials=50
+                        )
+                        self.best_params_low = self.tune_hyperparameters_optuna(
+                            X_train, y_low_train, "Support Model", n_trials=50
+                        )
+                    else:
+                        logger.info("HYPERPARAMETER TUNING with GRIDSEARCH (using first fold)")
+                        logger.info("%s", "=" * 60)
+                        self.best_params_high = self.tune_hyperparameters(
+                            X_train, y_high_train, "Resistance Model"
+                        )
+                        self.best_params_low = self.tune_hyperparameters(
+                            X_train, y_low_train, "Support Model"
+                        )
+                elif fold == 0 and not self.tune_hyperparams:
+                    # Use default good parameters
+                    self.best_params_high = {
+                        'n_estimators': 300, 'max_depth': 4, 'learning_rate': 0.05,
+                        'min_child_weight': 3, 'subsample': 0.8, 'colsample_bytree': 0.8
+                    }
+                    self.best_params_low = self.best_params_high.copy()
+                
+                # Train models with best parameters
+                if xgb_callbacks:
+                    self.best_params_high['callbacks'] = xgb_callbacks
+                    self.best_params_low['callbacks'] = xgb_callbacks
+
+                xgb_high = XGBRegressor(**self.best_params_high, random_state=42)
+                xgb_low = XGBRegressor(**self.best_params_low, random_state=42)
+                
+                xgb_high.fit(X_train, y_high_train)
+                xgb_low.fit(X_train, y_low_train)
+                
+                # Evaluate
+                y_high_pred = xgb_high.predict(X_test)
+                y_low_pred = xgb_low.predict(X_test)
+                
+                # Baseline (predict mean)
+                baseline_high_pred = np.full_like(y_high_test, y_high_train.mean())
+                baseline_low_pred = np.full_like(y_low_test, y_low_train.mean())
+                
+                # Metrics
+                rmse_high = np.sqrt(mean_squared_error(y_high_test, y_high_pred))
+                rmse_low = np.sqrt(mean_squared_error(y_low_test, y_low_pred))
+                
+                r2_high = r2_score(y_high_test, y_high_pred)
+                r2_low = r2_score(y_low_test, y_low_pred)
+                
+                baseline_r2_high = r2_score(y_high_test, baseline_high_pred)
+                baseline_r2_low = r2_score(y_low_test, baseline_low_pred)
+                
+                high_scores.append((rmse_high, r2_high))
+                low_scores.append((rmse_low, r2_low))
+                
+                logger.info(
+                    "Fold %s Results: Resistance RMSE=%.4f, R²=%.4f (baseline R²=%.4f)",
+                    fold + 1,
+                    rmse_high,
+                    r2_high,
+                    baseline_r2_high,
+                )
+                logger.info(
+                    "Fold %s Results: Support RMSE=%.4f, R²=%.4f (baseline R²=%.4f)",
+                    fold + 1,
+                    rmse_low,
+                    r2_low,
+                    baseline_r2_low,
+                )
+                
+                # Feature importance (only for first fold)
+                if fold == 0:
+                    importance_high = pd.DataFrame({
+                        'feature': selected_features,
+                        'importance': xgb_high.feature_importances_
+                    }).sort_values('importance', ascending=False)
+                    
+                    logger.info("Top 10 Features for Resistance:\n%s", importance_high.head(10).to_string(index=False))
+            
+            # Print average scores
+            logger.info("%s", "=" * 60)
+            logger.info("AVERAGE CROSS-VALIDATION RESULTS")
+            logger.info("%s", "=" * 60)
+            
+            avg_rmse_high = np.mean([s[0] for s in high_scores])
+            avg_r2_high = np.mean([s[1] for s in high_scores])
+            avg_rmse_low = np.mean([s[0] for s in low_scores])
+            avg_r2_low = np.mean([s[1] for s in low_scores])
+            
+            logger.info("Resistance: RMSE=%.4f, R²=%.4f", avg_rmse_high, avg_r2_high)
+            logger.info("Support: RMSE=%.4f, R²=%.4f", avg_rmse_low, avg_r2_low)
+            
+            # Train final models on ALL data with selected features
+            logger.info("%s", "=" * 60)
+            logger.info("TRAINING FINAL MODELS ON FULL DATASET")
+            logger.info("%s", "=" * 60)
+            
+            X_full = X[self.feature_cols].copy()
+            
+            self.model_high = XGBRegressor(**self.best_params_high, random_state=42)
+            self.model_low = XGBRegressor(**self.best_params_low, random_state=42)
+            
+            self.model_high.fit(X_full, y_high)
+            self.model_low.fit(X_full, y_low)
+            
+            logger.info("Final models trained with %s features", len(self.feature_cols))
+
+        # Run training in thread to avoid blocking asyncio loop
+        await asyncio.to_thread(_train_sync)
         
         return self
     
-    async def predict_levels(self, df):
+    async def predict_levels(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Make predictions on new data.
         Returns absolute price levels.
@@ -902,7 +873,6 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         Args:
             df: DataFrame with OHLCV data
         """
-        
         # Add features (this may drop some rows due to NaN from indicators)
         df_feat = df.copy()
         # Use only the selected features
@@ -919,29 +889,35 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         resistance_levels = current_prices * (1 + resistance_pct / 100)
         support_levels = current_prices * (1 + support_pct / 100)
         
-        return resistance_levels, support_levels
-    
+        return resistance_levels, resistance_pct, support_levels, support_pct
+
     async def predict_latest(self, lookback=200):
         """
         Predict S/R levels for the most recent candle.
         OPTIMIZED for speed in live trading.
         
+        NOTE: This method uses `self.df_final` so you must ensure `add_features` 
+        was called recently with up-to-date data.
+        
         Args:
-            df: Full dataframe with OHLCV data
             lookback: Number of historical candles to use (need enough for indicators)
   
         Returns:
             dict with current price, resistance, support, and risk/reward ratio
         """
-        import time
+        # Keep strictly if needed for performance metrics, otherwise move to top
         start_time = time.time()
         
+        if self.df_final.empty:
+            logger.warning("df_final is empty. Cannot predict.")
+            return None
+
         # Take recent data for indicator calculation
         # This fetches the last `lookback` rows in an efficient, vectorized manner:
         recent_df = self.df_final.tail(lookback)
         
         # Get predictions
-        resistance, support = await self.predict_levels(recent_df)
+        resistance, resistance_pct, support, support_pct = await self.predict_levels(recent_df)
         
         if len(resistance) == 0:
             return None
@@ -950,11 +926,11 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         latest_close = recent_df["close"].iloc[-1]
         latest_resistance = resistance[-1]
         latest_support = support[-1]
+        latest_resistance_pct = resistance_pct[-1]
+        latest_support_pct = support_pct[-1]
         
         # Calculate metrics
-        upside_pct = ((latest_resistance / latest_close) - 1) * 100
-        downside_pct = ((latest_support / latest_close) - 1) * 100
-        risk_reward = abs(upside_pct / downside_pct) if downside_pct != 0 else 0
+        risk_reward = abs(latest_resistance_pct / latest_support_pct) if latest_support_pct != 0 else 0
         
         elapsed_time = time.time() - start_time
 
@@ -964,8 +940,8 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
             "current_price": latest_close,
             "resistance": smart_round(latest_resistance),
             "support":smart_round(latest_support),
-            "upside_pct": round(upside_pct, 2),
-            "downside_pct": round(downside_pct, 2),
+            "upside_pct": round(float(latest_resistance_pct), 2),
+            "downside_pct": round(float(latest_support_pct), 2),
             "risk_reward_ratio": risk_reward,
             "timestamp": recent_df.index[-1],
             "prediction_time_ms": elapsed_time * 1000  # Convert to milliseconds
@@ -1059,7 +1035,7 @@ class PaginationParams:
 # other general-purpose operations used throughout the codebase.
 ###############################################################################
 
-def format_message_spikes(*args: Dict[str, Any]) -> str:
+def format_message_events(*args: Dict[str, Any]) -> str:
     """
     Formats message data from multiple dictionaries, filtering out messages
     where the price changes are less than MIN_PRICE_CHANGE.
@@ -1075,32 +1051,21 @@ def format_message_spikes(*args: Dict[str, Any]) -> str:
     """ 
     messages = []
 
-    def safe_float(raw):
-        try:
-            return float(raw.get("price_rate", 0))
-        except (TypeError, ValueError):
-            return 0.0
-
-    # for raw in sorted(args, key=safe_float, reverse=True):
-    #     try:   
-    #         price_rate = float(raw.get('price_rate', 0))
-    #         atr_pct = float(raw.get('atr_pct', 0))
-    #         close = float(raw.get('close', 0))
-    #     except ValueError:
-    #         continue
     for raw in args:
-        if abs(safe_float(raw)) < MIN_PRICE_CHANGE:
-            continue
         # Build message using f-string
-        messages.append(
-            (
-                f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
-                f"Price Change: {raw.get('price_rate', 0):.2f}%\n"
-                f"ATR Percentage: {raw.get('atr_pct', 0):.2f}%\n"
-                f"Close Price: {raw.get('close', 0)}\n"
-                f"──────────────"
+        try:
+            messages.append(
+                (
+                    f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
+                    f"Price Change: {raw.get('price_rate', 0):.2f}%\n"
+                    f"ATR Percentage: {raw.get('atr_pct', 0):.2f}%\n"
+                    f"Close Price: {raw.get('close', 0)}\n"
+                    f"──────────────"
+                )
             )
-        )
+        except ValueError as e:
+            logger.error(f"[ERROR] ValueError: {e}")
+
 
     return "\n".join(messages)
 

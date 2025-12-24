@@ -114,11 +114,6 @@ async def get_online_market_event() -> List[MarketEvent]:
         df_top_price_decrease = analyzer.get_top_symbols(metric="price_rate", ascending=True)
 
         df_merged = pd.concat([df_top_price_increase, df_top_price_decrease])
-        # df_merged = df_merged.groupby(["symbol", "event_timestamp"], as_index=False).agg({
-        #     "price_rate": "first",
-        #     "atr_pct": "first",
-        #     "close": "first",
-        # })
         return [MarketEvent(**event) for event in df_merged.to_dict(orient="records")]
    
     finally:
