@@ -9,7 +9,7 @@ from app.models.market_models import MarketEvent
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.database import get_database
 from app.core.logging import AppLogger
-from app.utils.helper import BinanceVolumeAnalyzer, format_message_spikes
+from app.utils.helper import BinanceVolumeAnalyzer, format_message_events
 from app.utils.whatsapp_connector import WhatsAppOutput
 from app.utils.telegram_connector import TelegramOutput
 from app.core.config import settings
@@ -49,7 +49,7 @@ async def scheduled_task():
                 logger.info("No price and volume change records to insert.")
 
             # Combine all for message formatting
-            message = format_message_spikes(*top_moves_v)
+            message = format_message_events(*top_moves_v)
 
             if message:
                 try:
