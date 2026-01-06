@@ -10,6 +10,7 @@ from app.core.logging import AppLogger
 from app.models.market_models import (
     AtrResult,
     AtrResults,
+    MarketTrendLabel,
     User,
     UserCreate, 
     MarketEvent, 
@@ -22,6 +23,7 @@ from app.models.market_models import (
 from app.core.database import get_database
 from app.utils.helper import (
     BaseAnalyzer,
+    AMSTL,
     BinanceVolumeAnalyzer,
     IndicatorComputer, 
     MarketSentimentAnalyzer, 
@@ -102,7 +104,7 @@ async def create_market_event(market_event: MarketEventCreate):
     record = await db["market_events"].find_one({"_id": new_market_event.inserted_id})
     return market_events_helper(record)
 
-
+#TODO: Fix the validacion when values nan coming to the json.
 async def get_online_market_event() -> List[MarketEvent]:
     analyzer = BinanceVolumeAnalyzer()
 
@@ -246,3 +248,25 @@ async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredict
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
         await predictor.close()
+
+
+async def get_market_trend_label(symbol: str, time_frame: str) -> List[MarketTrendLabel]:
+    model_label = AMSTL()
+    symbol = format_symbol_name(symbol)
+    try:
+        await model_label.initialize()
+        df = await model_label.get_historical_data(symbol=symbol, timeframe=time_frame, limit=1000)
+        await model_label.auto_calibrate_threshold(df, sensitivity=1.0)
+        labels = await model_label.label_trends(df)
+        result = pd.merge(df, labels, on='timestamp', how='inner').tail(25)
+        return [
+            MarketTrendLabel(
+                close=row.close,
+                trend=row.trend,
+                timestamp=row.Index
+            ) for row in result.itertuples()
+        ]
+    except Exception as e:
+        raise RuntimeError(f"Error initializing model: {e}")
+    finally:
+        await model_label.close()

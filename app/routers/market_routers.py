@@ -12,7 +12,8 @@ from app.models.market_models import (
     Message,
     MarketSentiment,
     PaginatedResponse,
-    XGBoostPredictionResult
+    XGBoostPredictionResult,
+    MarketTrendLabel
 )
 from app.services.market_services import (
     create_user,
@@ -27,7 +28,8 @@ from app.services.market_services import (
     send_messages,
     get_market_sentiment, 
     send_messages_tg,
-    get_xgboosr_prediction
+    get_xgboosr_prediction,
+    get_market_trend_label
 )
 from app.utils.helper import PaginationParams
 
@@ -110,3 +112,15 @@ async def get_xgboost_prediction(symbol: str = Query(...), time_frame: str = Que
             status_code=404,
             detail=f"The support and resistance calculation for'{symbol}' did not work")
     return pred
+
+@router.get("/marketTrendLabel/", response_model=List[MarketTrendLabel])
+async def market_trend_label(symbol: str = Query(...), time_frame: str = Query(...)):
+    """
+    Get market trend labels for a given symbol.
+    """
+    labels = await get_market_trend_label(symbol, time_frame)
+    if labels is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"The market trend label calculation for'{symbol}' did not work")
+    return labels
