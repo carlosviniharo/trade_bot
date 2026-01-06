@@ -75,3 +75,8 @@ class XGBoostPredictionResult(BaseModel):
     risk_reward_ratio: float
     timestamp: datetime
     prediction_time_ms: float
+
+class MarketTrendLabel(BaseModel):
+    close: float
+    trend: int
+    timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))

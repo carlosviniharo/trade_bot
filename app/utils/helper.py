@@ -16,6 +16,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from statsmodels.tsa.stattools import acf
 from xgboost import XGBRegressor
+from numba import jit
 
 import ccxt.async_support as ccxt_async
 
@@ -40,6 +41,11 @@ MIN_VOLUME_CHANGE = 5000 # Notice that the volumen movements are above 100 then 
 ## If the timeframe is 4h, the limit should be 6.
 ## If the timeframe is 1d, the limit should be 1.
 SINCE_24H_AGO_LIMIT = 96
+
+TREND_UP = 1
+TREND_DOWN = -1
+TREND_SIDEWAYS = 0
+
 _INDICATOR_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 T = TypeVar("T")
 
@@ -149,6 +155,7 @@ class IndicatorComputer:
                 .compute_ema()
                 .compute_volume_indicators()
             )
+
 
         return await self.run_in_thread(compute_all)
 
@@ -329,7 +336,7 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         metric: str = "price_rate", 
         ascending: bool = False,
         n_values: int = 3,
-        threshold: int = 1
+        threshold: int = 3
     ) -> pd.DataFrame:
         """
         Return a DataFrame with the top symbols ranked by the specified metric.
@@ -496,7 +503,13 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         
         return df.dropna()
 
-    def select_features(self, X_train, X_test, variance_threshold=0.01, correlation_threshold=0.85):
+    def select_features(
+        self, 
+        X_train: pd.DataFrame, 
+        X_test: pd.DataFrame, 
+        variance_threshold: float = 0.01, 
+        correlation_threshold: float = 0.85
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Feature selection using variance threshold and correlation filtering.
         """
@@ -554,7 +567,13 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         
         return X_train_final, X_test_final, final_features
     
-    def tune_hyperparameters_optuna(self, X_train, y_train, model_name="Model", n_trials=50):
+    def tune_hyperparameters_optuna(
+        self, 
+        X_train: pd.DataFrame, 
+        y_train: pd.Series, 
+        model_name: str = "Model", 
+        n_trials: int = 50
+    ) -> dict:
         """
         Use Optuna to find best hyperparameters (FASTER and BETTER than GridSearchCV).
         Uses Bayesian optimization with early stopping.
@@ -946,7 +965,212 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
             "timestamp": recent_df.index[-1],
             "prediction_time_ms": elapsed_time * 1000  # Convert to milliseconds
         }
+
+
+class AMSTL(BaseAnalyzer):
+    """
+    Adaptive Multi-Scale Trend Labeling (Optimized)
+    """
+
+    def __init__(
+            self,
+            window_sizes=[15, 30, 60],
+            threshold_std=1.0, 
+            atr_window=14,
+            **kwargs
+            ) -> None:
+        super().__init__(**kwargs)
+        self.window_sizes = window_sizes
+        self.threshold_std = threshold_std
+        self.atr_window = atr_window
+        
+        # --- Parameterized Magic Numbers ---
+        self.min_trend_duration = kwargs.get("min_trend_duration", 5)
+        self.cost_floor_pct = kwargs.get("cost_floor_pct", 0.0005) # 0.05%
+        self.grad_scale_window = kwargs.get("grad_scale_window", 30)
+        self.atr_clip_max = kwargs.get("atr_clip_max", 5.0)
+
+        # --- Caching Mechanism ---
+        self._cache_key = None
+        self._cached_metrics = None
+
+    async def get_historical_data(self, symbol: str, timeframe: str = '15m', limit: int = SINCE_24H_AGO_LIMIT) -> pd.DataFrame:
+        df = await super().get_historical_data(symbol, timeframe, limit)
+        if not df.empty and "timestamp" in df.columns:
+            df.set_index("timestamp", inplace=True)
+        return df if not df.empty else pd.DataFrame()
+
+    async def _compute_grad_and_atr_scaled(self, df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+        """
+        Compute weighted gradient and cost-adjusted ATR scaling.
+        Includes simple caching to prevent double calculation during calibration + labeling.
+        """
+        # 1. Check Cache (Index check is fast)
+        current_key = (df.index[0], df.index[-1], len(df))
+        if self._cache_key == current_key and self._cached_metrics is not None:
+            return self._cached_metrics
+
+        close = df["close"]
+        # Use log(close) directly; +1e-8 is only needed if close can be 0 (impossible for assets)
+        prices_log = np.log(close)
+
+        # --- 2. Multi-scale smoothing (Vectorized) ---
+        # Concatenate rolling means to avoid loop DataFrame overhead if possible, 
+        # but simple loop is fine here.
+        smoothed_dict = {}
+        for w in self.window_sizes:
+            smoothed_dict[w] = (
+                prices_log.rolling(window=w, center=True, min_periods=max(1, w // 2))
+                .mean()
+            )
+        smoothed = pd.DataFrame(smoothed_dict, index=close.index).bfill().ffill()
+
+        # --- 3. Weighted gradient ---
+        grad_matrix = smoothed.diff().fillna(0)
+        weights = np.array([1 / w for w in self.window_sizes], dtype=float)
+        weights /= weights.sum()
+        weighted_grad = grad_matrix.dot(weights) # Returns Series
+
+        # --- 4. Robust ATR Computation ---
+        indicator_computer = self.indicator_computer(df)
+        await indicator_computer.run_in_thread(
+            lambda: indicator_computer.compute_atr(self.atr_window)
+        )
+        df_transformed = indicator_computer.get_df_transformed()
+        atr = df_transformed["atr"].fillna(0)
+
+        # Cost Floor: Logic maintained
+        cost_floor = close * self.cost_floor_pct 
+        atr_robust = atr + cost_floor
+
+        # Logarithmic normalization: log(1 + ATR/Close) approx log returns volatility
+        atr_log_equiv = np.log1p(atr_robust / close)
+        atr_log_equiv = atr_log_equiv.replace([np.inf, -np.inf], np.nan).bfill().ffill()
+
+        # --- 5. Adaptive Scaling ---
+        # Normalize ATR by local gradient activity
+        grad_scale = weighted_grad.abs().rolling(window=self.grad_scale_window, min_periods=1).mean()
+        grad_scale = grad_scale.replace([np.inf, -np.inf], np.nan).bfill().ffill()
+
+        # Ratio: Noise / Signal
+        atr_ratio = (atr_log_equiv / (grad_scale + 1e-9)).clip(upper=self.atr_clip_max)
+
+        atr_scaled = (
+            atr_ratio.ewm(span=10, adjust=False).mean()
+            .clip(lower=1e-6)
+            .bfill().ffill()
+        )
+
+        # Update Cache
+        self._cache_key = current_key
+        self._cached_metrics = (weighted_grad, atr_scaled)
+        
+        return weighted_grad, atr_scaled
+
+    async def auto_calibrate_threshold(self, df: pd.DataFrame, sensitivity: float = 2.0) -> float:
+        weighted_grad, atr_scaled = await self._compute_grad_and_atr_scaled(df)
+        
+        # Signal-to-Noise Ratio
+        ratio = (weighted_grad / (atr_scaled + 1e-9)).dropna().abs()
+        
+        median_val = np.median(ratio)
+        mad = np.median(np.abs(ratio - median_val))
+        robust_sigma = mad * 1.4826
+        
+        self.threshold_std = median_val + (sensitivity * robust_sigma)
+        
+        logger.debug(f"AMSTL Calibrated -> Median: {median_val:.5f}, MAD: {mad:.5f}, Threshold: {self.threshold_std:.5f}")
+        return self.threshold_std
+
+    async def label_trends(self, df: pd.DataFrame) -> pd.Series:
+        """Label trends using the consistent ATR-based threshold."""
+        # 1. Fetch metrics (hits cache if auto_calibrate was just called)
+        weighted_grad, atr_scaled = await self._compute_grad_and_atr_scaled(df)
+
+        adaptive_threshold = atr_scaled * self.threshold_std
+        
+        # Prepare numpy arrays for Numba/Fast processing
+        grad_arr = weighted_grad.values
+        thresh_arr = adaptive_threshold.values
+        
+        # 2. Run State Machine
+        raw_trend = _numba_state_machine(grad_arr, thresh_arr)
+
+        # 3. Apply Minimum Duration Filter (Vectorized)
+        final_trends = self._apply_min_duration(raw_trend)
+
+        return pd.Series(final_trends, index=df.index, name="trend")
+
+    def _apply_min_duration(self, raw_trend: np.ndarray) -> np.ndarray:
+        """
+        Vectorized approach to filter short duration trends.
+        """
+        if self.min_trend_duration <= 1:
+            return raw_trend
+
+        # Identify changes
+        series = pd.Series(raw_trend)
+        # Create groups for consecutive values
+        groups = (series != series.shift()).cumsum()
+        # Count size of each group
+        counts = series.groupby(groups).transform('size')
+        
+        # Mask: If count < min_duration, set to SIDEWAYS (0)
+        # Note: This logic suppresses short trends entirely (retroactively). 
+        # If you need real-time behavior, the loop approach is safer but lags.
+        # Assuming we want to clean 'noise' from history:
+        mask = counts < self.min_trend_duration
+        series[mask] = TREND_SIDEWAYS 
+        
+        return series.values
+
+# --- Helper Function (JIT Compiled) ---
+# If numba is not available, remove @jit decorator
+@jit(nopython=True)
+def _numba_state_machine(grad, threshold):
+    n = len(grad)
+    trends = np.zeros(n, dtype=np.int8)
     
+    # Constants
+    TREND_UP = 1
+    TREND_DOWN = -1
+    TREND_SIDEWAYS = 0
+    
+    current_state = TREND_SIDEWAYS
+    
+    for i in range(n):
+        g = grad[i]
+        t = threshold[i]
+        
+        if np.isnan(g) or np.isnan(t):
+            trends[i] = TREND_SIDEWAYS
+            continue
+            
+        up_entry = t
+        down_entry = -t
+        
+        # Hysteresis
+        up_exit = 0.4 * up_entry
+        down_exit = 0.4 * down_entry
+        neutral_threshold = 0.2 * up_entry
+        
+        if abs(g) < neutral_threshold:
+            current_state = TREND_SIDEWAYS
+        elif current_state == TREND_SIDEWAYS:
+            if g > up_entry:
+                current_state = TREND_UP
+            elif g < down_entry:
+                current_state = TREND_DOWN
+        elif current_state == TREND_UP:
+            if g < up_exit:
+                current_state = TREND_SIDEWAYS
+        elif current_state == TREND_DOWN:
+            if g > down_exit:
+                current_state = TREND_SIDEWAYS
+                
+        trends[i] = current_state
+        
+    return trends
 
 class MarketSentimentAnalyzer:
     """
