@@ -33,6 +33,9 @@ async def scheduled_task():
         # Merge the dataframes and group by symbol and event_timestamp
         df_merged = pd.concat([df_top_price_increase, df_top_price_decrease])
         
+        # Clear analyzer data to prevent memory accumulation
+        analyzer.clear_data()
+        
         if not df_merged.empty:
             telegram = TelegramOutput(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
 
@@ -65,12 +68,27 @@ async def scheduled_task():
                 logger.info("No message to send")
         else:
             logger.info("No trade data to insert")
+        
+        # Explicitly delete DataFrames to free memory
+        if 'df_top_price_increase' in locals():
+            del df_top_price_increase
+        if 'df_top_price_decrease' in locals():
+            del df_top_price_decrease
+        if 'df_merged' in locals():
+            del df_merged
+        if 'top_moves_v' in locals():
+            del top_moves_v
+        if 'records' in locals():
+            del records
+        
     except Exception as e:
-
         logger.error(f"An error occurred: {e}")
 
     finally:
         await analyzer.close()
+        # Force garbage collection after cleanup
+        import gc
+        gc.collect()
 
 
 scheduler = AsyncIOScheduler()

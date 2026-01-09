@@ -104,7 +104,7 @@ async def create_market_event(market_event: MarketEventCreate):
     record = await db["market_events"].find_one({"_id": new_market_event.inserted_id})
     return market_events_helper(record)
 
-#TODO: Fix the validacion when values nan coming to the json.
+#TODO: Fix the validacion when nan values comes to the json.
 async def get_online_market_event() -> List[MarketEvent]:
     analyzer = BinanceVolumeAnalyzer()
 
@@ -187,6 +187,8 @@ async def send_messages(message):
     except Exception as e:
         # Raising an HTTPException with a status code and the error message
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        await whatsapp.close()
     return {"message": "Message sent successfully", "success": True}
 
 
@@ -256,7 +258,7 @@ async def get_market_trend_label(symbol: str, time_frame: str) -> List[MarketTre
     try:
         await model_label.initialize()
         df = await model_label.get_historical_data(symbol=symbol, timeframe=time_frame, limit=1000)
-        await model_label.auto_calibrate_threshold(df, sensitivity=1.0)
+        await model_label.auto_calibrate_threshold(df)
         labels = await model_label.label_trends(df)
         result = pd.merge(df, labels, on='timestamp', how='inner').tail(25)
         return [

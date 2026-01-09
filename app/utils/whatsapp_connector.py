@@ -1,5 +1,5 @@
 from typing import Text, Dict, Any, Optional, List
-import requests
+import httpx
 import json
 
 from app.core.logging import AppLogger
@@ -29,6 +29,7 @@ class WhatsAppOutput:
         self.access_token = access_token
         self.phone_number_id = phone_number_id
         self.api_url = f"https://graph.facebook.com/v13.0/{phone_number_id}/messages"
+        self.client = httpx.AsyncClient()
 
     async def send_text_message(self, recipient_id: Text, message: Text, **kwargs: Any) -> None:
         """Sends a text message to a recipient.
@@ -53,10 +54,12 @@ class WhatsAppOutput:
                 "body": message
             }
         }
-        response = requests.post(self.api_url, headers=headers, data=json.dumps(data))
-        if response.status_code != 200:
-            logger.error(f"Failed to send message: {response.text}")
-            raise Exception(f"WhatsApp API error: {response.status_code} - {response.text}")
+        try:
+            response = await self.client.post(self.api_url, headers=headers, json=data)
+            response.raise_for_status()
+        except httpx.RequestError as e:
+            logger.error(f"Failed to send message: {e}")
+            raise Exception(f"WhatsApp API error: {str(e)}")
 
     async def send_batch_messages(self, recipient_messages: List[Dict[Text, Any]]) -> None:
         """Sends a batch of messages to multiple recipients.
@@ -93,8 +96,17 @@ class WhatsAppOutput:
         json_message.setdefault("recipient_type", "individual")
         json_message.setdefault("to", recipient_id)
 
-        response = requests.post(self.api_url, headers=headers, data=json.dumps(json_message))
-        logger.debug(f"WhatsApp API response: {response.status_code}, {response.text}")
+        try:
+            response = await self.client.post(self.api_url, headers=headers, json=json_message)
+            logger.debug(f"WhatsApp API response: {response.status_code}, {response.text}")
+        except httpx.RequestError as e:
+            logger.error(f"WhatsApp API error: {e}")
+            raise
+
+    async def close(self) -> None:
+        """Closes the underlying HTTP client to prevent memory leaks."""
+        if hasattr(self, 'client') and self.client:
+            await self.client.aclose()
 
 # TODO: Implement the WhatsAppInput class for incoming messages from the Whatsapp Cloud API
 
