@@ -104,7 +104,7 @@ async def create_market_event(market_event: MarketEventCreate):
     record = await db["market_events"].find_one({"_id": new_market_event.inserted_id})
     return market_events_helper(record)
 
-#TODO: Fix the validacion when values nan coming to the json.
+#TODO: Fix the validacion when nan values comes to the json.
 async def get_online_market_event() -> List[MarketEvent]:
     analyzer = BinanceVolumeAnalyzer()
 
@@ -187,6 +187,8 @@ async def send_messages(message):
     except Exception as e:
         # Raising an HTTPException with a status code and the error message
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        await whatsapp.close()
     return {"message": "Message sent successfully", "success": True}
 
 

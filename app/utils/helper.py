@@ -50,6 +50,12 @@ _INDICATOR_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 T = TypeVar("T")
 
 
+def shutdown_indicator_executor():
+    """Shutdown the indicator executor to prevent memory leaks."""
+    if _INDICATOR_EXECUTOR:
+        _INDICATOR_EXECUTOR.shutdown(wait=False)
+
+
 class IndicatorComputer:
     """Computes technical indicators on linear or log-transformed prices."""
 
@@ -210,6 +216,10 @@ class BaseAnalyzer:
                 logger.error(f"Error during exchange close: {type(e).__name__} - {e}")
             finally:
                 self.exchange = None
+        
+        # Clear any cached data in subclasses
+        if hasattr(self, 'clear_data'):
+            self.clear_data()
 
     async def get_futures_pairs(self, pair:str = 'USDT') -> Dict[str, Any]:
         """
@@ -357,13 +367,17 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
 
         df_sorted = (
             self._df_final_values[['symbol', 'event_timestamp', 'price_rate', 'atr_pct', 'close']].copy()
-            .loc[lambda x: abs(x['price_rate']) > threshold]
             .sort_values(by=metric, ascending=ascending)
             .head(n_values)
             .reset_index(drop=True)
         )
 
-        return df_sorted
+        result = df_sorted.loc[lambda x: abs(x[metric]) > threshold]
+        return result
+    
+    def clear_data(self):
+        """Clear accumulated DataFrame data to prevent memory leaks."""
+        self._df_final_values = pd.DataFrame()
 
 
 class XGBoostSupportResistancePredictor(BaseAnalyzer):
@@ -965,6 +979,17 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
             "timestamp": recent_df.index[-1],
             "prediction_time_ms": elapsed_time * 1000  # Convert to milliseconds
         }
+    
+    def clear_data(self):
+        """Clear large model data and DataFrames to prevent memory leaks."""
+        self.df_final = pd.DataFrame()
+        self.model_high = None
+        self.model_low = None
+        self.feature_cols = None
+        self.variance_selector = None
+        self.corr_features_to_drop = []
+        self.best_params_high = None
+        self.best_params_low = None
 
 
 class AMSTL(BaseAnalyzer):
@@ -1171,6 +1196,7 @@ def _numba_state_machine(grad, threshold):
         trends[i] = current_state
         
     return trends
+
 
 class MarketSentimentAnalyzer:
     """

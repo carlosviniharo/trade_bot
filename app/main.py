@@ -7,6 +7,7 @@ from app.tasks.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import market_routers
 from app.core.database import Database
 from app.core.logging import AppLogger
+from app.utils.helper import shutdown_indicator_executor
 
 # Set up logging
 logger = AppLogger.get_logger()
@@ -35,6 +36,8 @@ async def lifespan(app: FastAPI):
         logger.info("Disconnecting from the database...")
         await Database.disconnect()  # Disconnect from the database
         logger.info("Database disconnected.")
+        shutdown_indicator_executor()  # Shutdown thread pool executor
+        logger.info("Thread pool executor shut down.")
 
 # Create FastAPI app with lifespan
 app = FastAPI(lifespan=lifespan)
