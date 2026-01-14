@@ -258,7 +258,7 @@ async def get_market_trend_label(symbol: str, time_frame: str) -> List[MarketTre
     try:
         await model_label.initialize()
         df = await model_label.get_historical_data(symbol=symbol, timeframe=time_frame, limit=1000)
-        await model_label.auto_calibrate_threshold(df)
+        await model_label.auto_calibrate_threshold(df, sensitivity=1.0)
         labels = await model_label.label_trends(df)
         result = pd.merge(df, labels, on='timestamp', how='inner').tail(25)
         return [
