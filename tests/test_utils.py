@@ -5,9 +5,15 @@ import numpy as np
 import pytest
 
 from app.utils.helper import (
+    AMSTL,
     BinanceVolumeAnalyzer, 
+    TREND_DOWN,
+    TREND_SIDEWAYS,
+    TREND_UP,
     XGBoostSupportResistancePredictor, 
-    format_message_events
+    _numba_state_machine,
+    format_message_events,
+    validate_label_quality,
 )
 
 
@@ -142,7 +148,114 @@ def test_format_message_events_invalid_values(caplog):
     assert any("ValueError" in record.message for record in caplog.records)
 
 
+# ── AMSTL / _numba_state_machine tests ──────────────────────────────────────
 
+def test_amstl_state_machine_enters_uptrend_after_confirmation():
+    """With confirm_bars=3, need 3 consecutive bars above threshold to enter UP."""
+    # Bars: 0=sideways, 1-4=above threshold (enters UP after bar 3)
+    grad = np.array([0.0, 1.2, 1.3, 1.1, 1.5, 1.4], dtype=np.float64)
+    threshold = np.ones_like(grad)
+
+    trends = _numba_state_machine(grad, threshold, confirm_bars=3)
+
+    # Bars 0: sideways (no signal)
+    assert trends[0] == TREND_SIDEWAYS
+    # Bars 1-2: above threshold but still confirming (count=1, count=2)
+    assert trends[1] == TREND_SIDEWAYS
+    assert trends[2] == TREND_SIDEWAYS
+    # Bar 3: 3rd confirmation bar → transition to UP
+    assert trends[3] == TREND_UP
+    # Bar 4-5: stays UP
+    assert trends[4] == TREND_UP
+    assert trends[5] == TREND_UP
+
+
+def test_amstl_state_machine_single_bar_does_not_kill_trend():
+    """A single bar below exit threshold should NOT kill a confirmed trend."""
+    # First build a confirmed UP trend, then drop once, then resume
+    grad = np.array([1.5, 1.5, 1.5, 0.1, 1.5, 1.5], dtype=np.float64)
+    threshold = np.ones_like(grad)
+
+    trends = _numba_state_machine(grad, threshold, confirm_bars=3)
+
+    # Bars 0-2: confirming → enters UP at bar 2
+    assert trends[2] == TREND_UP
+    # Bar 3: single bar below exit (0.4), but only 1 confirmation → stays UP
+    assert trends[3] == TREND_UP
+    # Bars 4-5: back above → resets pending, stays UP
+    assert trends[4] == TREND_UP
+    assert trends[5] == TREND_UP
+
+
+def test_amstl_state_machine_with_confirm_bars_1_behaves_immediately():
+    """With confirm_bars=1, transitions happen immediately (like old behavior)."""
+    grad = np.array([0.0, 0.5, 1.2, 1.1], dtype=np.float64)
+    threshold = np.ones_like(grad)
+
+    trends = _numba_state_machine(grad, threshold, confirm_bars=1)
+
+    assert trends[0] == TREND_SIDEWAYS
+    assert trends[1] == TREND_SIDEWAYS
+    assert trends[2] == TREND_UP
+    assert trends[3] == TREND_UP
+
+
+def test_amstl_short_sideways_gap_is_merged_back_into_trend():
+    labeler = AMSTL(min_trend_duration=3)
+    raw_trend = np.array([TREND_UP, TREND_UP, TREND_UP, TREND_SIDEWAYS, TREND_SIDEWAYS, TREND_UP, TREND_UP, TREND_UP], dtype=np.int8)
+
+    cleaned = labeler._apply_min_duration(raw_trend)
+
+    assert cleaned.tolist() == [TREND_UP] * len(raw_trend)
+
+
+def test_amstl_short_opposite_burst_is_removed():
+    labeler = AMSTL(min_trend_duration=3)
+    raw_trend = np.array([TREND_DOWN, TREND_DOWN, TREND_DOWN, TREND_UP, TREND_UP, TREND_DOWN, TREND_DOWN, TREND_DOWN], dtype=np.int8)
+
+    cleaned = labeler._apply_min_duration(raw_trend)
+
+    assert cleaned.tolist() == [
+        TREND_DOWN,
+        TREND_DOWN,
+        TREND_DOWN,
+        TREND_SIDEWAYS,
+        TREND_SIDEWAYS,
+        TREND_DOWN,
+        TREND_DOWN,
+        TREND_DOWN,
+    ]
+
+
+# ── validate_label_quality tests ────────────────────────────────────────────
+
+def test_validate_label_quality_returns_expected_structure():
+    """Basic smoke test for the diagnostic function."""
+    # Create a simple trending dataset where UP labels have positive returns
+    n = 50
+    prices = np.cumsum(np.random.randn(n) * 0.5 + 0.1) + 100  # upward drift
+    trends = np.array([TREND_UP] * 20 + [TREND_SIDEWAYS] * 10 + [TREND_DOWN] * 20, dtype=np.int8)
+    
+    df = pd.DataFrame({"close": prices, "trend": trends})
+    result = validate_label_quality(df, forward_bars=5)
+    
+    assert "up_precision" in result
+    assert "down_precision" in result
+    assert "sideways_avg_abs_return" in result
+    assert "overall_quality" in result
+    assert "distribution" in result
+    assert result["up_count"] > 0
+    assert result["down_count"] > 0
+    assert result["sideways_count"] > 0
+
+
+def test_validate_label_quality_raises_on_missing_columns():
+    df = pd.DataFrame({"price": [1, 2, 3]})
+    with pytest.raises(ValueError, match="must contain"):
+        validate_label_quality(df)
+
+
+# ── XGBoost integration test ───────────────────────────────────────────────
 
 # Mock exchange to avoid network calls
 class MockExchange:
@@ -189,4 +302,3 @@ async def test_xgboost_predictor_full_flow():
     assert "resistance" in prediction, "Prediction should contain 'resistance'"
     assert "support" in prediction, "Prediction should contain 'support'"
     assert prediction["resistance"] != 0, "Resistance should be non-zero"
-

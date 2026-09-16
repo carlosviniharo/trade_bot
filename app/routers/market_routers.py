@@ -29,40 +29,44 @@ from app.services.market_services import (
     get_market_sentiment, 
     send_messages_tg,
     get_xgboosr_prediction,
-    get_market_trend_label
+    get_market_trend_label,
 )
 from app.utils.helper import PaginationParams
 
 router = APIRouter()
 
-@router.post("/users/", response_model=User)
-async def create_new_user(user: UserCreate):
-    return await create_user(user)
+# @router.post("/users/", response_model=User)
+# async def create_new_user(user: UserCreate):
+#     return await create_user(user)
 
-@router.get("/users/{user_id}", response_model=User)
-async def get_user_by_id(user_id: str):
-    user = await get_user(user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
+# @router.get("/users/{user_id}", response_model=User)
+# async def get_user_by_id(user_id: str):
+#     user = await get_user(user_id)
+#     if user is None:
+#         raise HTTPException(status_code=404, detail="User not found")
+#     return user
 
-@router.get("/users/", response_model=list[User])
-async def get_all_users():
-    return await list_users()
+# @router.get("/users/", response_model=list[User])
+# async def get_all_users():
+#     return await list_users()
 
-@router.put("/users/{user_id}", response_model=User)
-async def update_user_by_id(user_id: str, user: UserCreate):
-    updated_user = await update_user(user_id, user)
-    if updated_user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return updated_user
+# @router.put("/users/{user_id}", response_model=User)
+# async def update_user_by_id(user_id: str, user: UserCreate):
+#     updated_user = await update_user(user_id, user)
+#     if updated_user is None:
+#         raise HTTPException(status_code=404, detail="User not found")
+#     return updated_user
 
-@router.delete("/users/{user_id}")
-async def delete_user_by_id(user_id: str):
-    deleted_count = await delete_user(user_id)
-    if deleted_count == 0:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"message": "User deleted"}
+# @router.delete("/users/{user_id}")
+# async def delete_user_by_id(user_id: str):
+#     deleted_count = await delete_user(user_id)
+#     if deleted_count == 0:
+#         raise HTTPException(status_code=404, detail="User not found")
+#     return {"message": "User deleted"}
+
+@router.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 @router.post("/marketEvents/", response_model=MarketEvent)
 async def create_new_market_event(market_event: MarketEventCreate):
@@ -114,11 +118,11 @@ async def get_xgboost_prediction(symbol: str = Query(...), time_frame: str = Que
     return pred
 
 @router.get("/marketTrendLabel/", response_model=List[MarketTrendLabel])
-async def market_trend_label(symbol: str = Query(...), time_frame: str = Query(...)):
+async def market_trend_label(symbol: str = Query(...), time_frame: str = Query(...), candel_limit: int = Query(50)):
     """
     Get market trend labels for a given symbol.
     """
-    labels = await get_market_trend_label(symbol, time_frame)
+    labels = await get_market_trend_label(symbol, time_frame, candel_limit)
     if labels is None:
         raise HTTPException(
             status_code=404,

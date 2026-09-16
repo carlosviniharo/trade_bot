@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional, List
+from starlette.middleware import Middleware
 
 class AppSettings(BaseSettings):
     ENV: str = "development" 
@@ -12,11 +14,21 @@ class AppSettings(BaseSettings):
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
     DEBUG: bool = False
+    BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:5173"]
 
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8"
     }
+    middleware: List[Middleware] = [
+        Middleware(
+            CORSMiddleware,
+            allow_origins=["*"], #BACKEND_CORS_ORIGINS
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    ]
 
 class DevelopmentSettings(AppSettings):
     DEBUG: bool = True

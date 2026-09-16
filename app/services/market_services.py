@@ -252,15 +252,15 @@ async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredict
         await predictor.close()
 
 
-async def get_market_trend_label(symbol: str, time_frame: str) -> List[MarketTrendLabel]:
+async def get_market_trend_label(symbol: str, time_frame: str, candle_limit: int = 50) -> List[MarketTrendLabel]:
     model_label = AMSTL()
     symbol = format_symbol_name(symbol)
     try:
         await model_label.initialize()
         df = await model_label.get_historical_data(symbol=symbol, timeframe=time_frame, limit=1000)
-        await model_label.auto_calibrate_threshold(df, sensitivity=1.0)
+        await model_label.auto_calibrate_threshold(df)#, sensitivity=1.0)
         labels = await model_label.label_trends(df)
-        result = pd.merge(df, labels, on='timestamp', how='inner').tail(25)
+        result = pd.merge(df, labels, on='timestamp', how='inner').tail(candle_limit)
         return [
             MarketTrendLabel(
                 close=row.close,
@@ -272,3 +272,5 @@ async def get_market_trend_label(symbol: str, time_frame: str) -> List[MarketTre
         raise RuntimeError(f"Error initializing model: {e}")
     finally:
         await model_label.close()
+
+

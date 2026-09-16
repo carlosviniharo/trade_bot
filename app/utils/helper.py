@@ -221,7 +221,7 @@ class BaseAnalyzer:
         if hasattr(self, 'clear_data'):
             self.clear_data()
 
-    async def get_futures_pairs(self, pair:str = 'USDT') -> Dict[str, Any]:
+    async def get_futures_pairs(self, pair:str = 'USDT') -> List[str]:
         """
         Fetch all future tickets pairs.
         
@@ -523,7 +523,7 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         X_test: pd.DataFrame, 
         variance_threshold: float = 0.01, 
         correlation_threshold: float = 0.85
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, List[str]]:
         """
         Feature selection using variance threshold and correlation filtering.
         """
@@ -1014,6 +1014,7 @@ class AMSTL(BaseAnalyzer):
         self.cost_floor_pct = kwargs.get("cost_floor_pct", 0.0005) # 0.05%
         self.grad_scale_window = kwargs.get("grad_scale_window", 30)
         self.atr_clip_max = kwargs.get("atr_clip_max", 5.0)
+        self.confirmation_bars = kwargs.get("confirmation_bars", 3)
 
         # --- Caching Mechanism ---
         self._cache_key = None
@@ -1051,8 +1052,10 @@ class AMSTL(BaseAnalyzer):
         smoothed = pd.DataFrame(smoothed_dict, index=close.index).bfill().ffill()
 
         # --- 3. Weighted gradient ---
+        # sqrt(w) weights: larger windows (structural trend) get more weight
+        # than smaller windows (noise), improving trend label stability.
         grad_matrix = smoothed.diff().fillna(0)
-        weights = np.array([1 / w for w in self.window_sizes], dtype=float)
+        weights = np.array([np.sqrt(w) for w in self.window_sizes], dtype=float)
         weights /= weights.sum()
         weighted_grad = grad_matrix.dot(weights) # Returns Series
 
@@ -1118,41 +1121,69 @@ class AMSTL(BaseAnalyzer):
         grad_arr = weighted_grad.values
         thresh_arr = adaptive_threshold.values
         
-        # 2. Run State Machine
-        raw_trend = _numba_state_machine(grad_arr, thresh_arr)
+        # 2. Run State Machine (with confirmation counter for stability)
+        raw_trend = _numba_state_machine(grad_arr, thresh_arr, self.confirmation_bars)
 
-        # 3. Apply Minimum Duration Filter (Vectorized)
+        # 3. Apply Minimum Duration Filter
         final_trends = self._apply_min_duration(raw_trend)
 
         return pd.Series(final_trends, index=df.index, name="trend")
 
     def _apply_min_duration(self, raw_trend: np.ndarray) -> np.ndarray:
         """
-        Vectorized approach to filter short duration trends.
+        Segment-based min-duration filter with smart merge-back logic.
+        
+        - Short sideways gaps between same-direction trends are merged back
+          (preserves real trend structure through brief pauses).
+        - Short opposite-direction bursts are suppressed to SIDEWAYS
+          (prevents noisy trend flips).
         """
-        if self.min_trend_duration <= 1:
+        if self.min_trend_duration <= 1 or len(raw_trend) == 0:
             return raw_trend
 
-        # Identify changes
-        series = pd.Series(raw_trend)
-        # Create groups for consecutive values
-        groups = (series != series.shift()).cumsum()
-        # Count size of each group
-        counts = series.groupby(groups).transform('size')
-        
-        # Mask: If count < min_duration, set to SIDEWAYS (0)
-        # Note: This logic suppresses short trends entirely (retroactively). 
-        # If you need real-time behavior, the loop approach is safer but lags.
-        # Assuming we want to clean 'noise' from history:
-        mask = counts < self.min_trend_duration
-        series[mask] = TREND_SIDEWAYS 
-        
-        return series.values
+        trends = raw_trend.copy()
+        segments: list[tuple[int, int, int]] = []
+        start = 0
+        n = len(trends)
+
+        while start < n:
+            end = start + 1
+            while end < n and trends[end] == trends[start]:
+                end += 1
+            segments.append((start, end, int(trends[start])))
+            start = end
+
+        for idx, (start, end, value) in enumerate(segments):
+            length = end - start
+            if length >= self.min_trend_duration:
+                continue
+
+            prev_value = segments[idx - 1][2] if idx > 0 else None
+            next_value = segments[idx + 1][2] if idx + 1 < len(segments) else None
+
+            if (
+                value == TREND_SIDEWAYS
+                and prev_value == next_value
+                and prev_value not in (None, TREND_SIDEWAYS)
+            ):
+                # Short sideways gap between same-direction trends → merge back
+                trends[start:end] = prev_value
+            elif value != TREND_SIDEWAYS:
+                # Short opposite-direction burst → suppress to sideways
+                trends[start:end] = TREND_SIDEWAYS
+
+        return trends
 
 # --- Helper Function (JIT Compiled) ---
 # If numba is not available, remove @jit decorator
 @jit(nopython=True)
-def _numba_state_machine(grad, threshold):
+def _numba_state_machine(grad, threshold, confirm_bars=3):
+    """State machine with hysteresis and confirmation counter.
+    
+    Requires `confirm_bars` consecutive bars confirming a state transition
+    before actually changing state. This prevents single-bar noise (e.g. doji
+    candles mid-trend) from killing an established trend.
+    """
     n = len(grad)
     trends = np.zeros(n, dtype=np.int8)
     
@@ -1162,6 +1193,8 @@ def _numba_state_machine(grad, threshold):
     TREND_SIDEWAYS = 0
     
     current_state = TREND_SIDEWAYS
+    pending_state = TREND_SIDEWAYS
+    confirm_count = 0
     
     for i in range(n):
         g = grad[i]
@@ -1169,33 +1202,143 @@ def _numba_state_machine(grad, threshold):
         
         if np.isnan(g) or np.isnan(t):
             trends[i] = TREND_SIDEWAYS
+            current_state = TREND_SIDEWAYS
+            pending_state = TREND_SIDEWAYS
+            confirm_count = 0
             continue
             
         up_entry = t
         down_entry = -t
         
-        # Hysteresis
+        # Hysteresis: lower exit thresholds than entry thresholds
         up_exit = 0.4 * up_entry
         down_exit = 0.4 * down_entry
-        neutral_threshold = 0.2 * up_entry
         
-        if abs(g) < neutral_threshold:
-            current_state = TREND_SIDEWAYS
-        elif current_state == TREND_SIDEWAYS:
+        # Determine what state this bar suggests
+        suggested_state = current_state  # Default: stay in current state
+        
+        if current_state == TREND_SIDEWAYS:
             if g > up_entry:
-                current_state = TREND_UP
+                suggested_state = TREND_UP
             elif g < down_entry:
-                current_state = TREND_DOWN
+                suggested_state = TREND_DOWN
         elif current_state == TREND_UP:
             if g < up_exit:
-                current_state = TREND_SIDEWAYS
+                suggested_state = TREND_SIDEWAYS
         elif current_state == TREND_DOWN:
             if g > down_exit:
-                current_state = TREND_SIDEWAYS
+                suggested_state = TREND_SIDEWAYS
+        
+        # Confirmation counter logic
+        if suggested_state != current_state:
+            if suggested_state == pending_state:
+                confirm_count += 1
+            else:
+                pending_state = suggested_state
+                confirm_count = 1
+            
+            if confirm_count >= confirm_bars:
+                current_state = pending_state
+                confirm_count = 0
+        else:
+            # Current state is confirmed — reset any pending transition
+            pending_state = current_state
+            confirm_count = 0
                 
         trends[i] = current_state
         
     return trends
+
+
+
+def validate_label_quality(
+    df: pd.DataFrame,
+    trend_col: str = "trend",
+    close_col: str = "close",
+    forward_bars: int = 10,
+) -> dict:
+    """Validate labeler quality by checking forward returns for each label class.
+    
+    For LSTM training labels, UP labels should predominantly have positive
+    forward returns, and DOWN labels should have negative forward returns.
+    A good labeler achieves >60% directional accuracy.
+    
+    Args:
+        df: DataFrame with close prices and trend labels.
+        trend_col: Column name for trend labels (-1, 0, 1).
+        close_col: Column name for close prices.
+        forward_bars: Number of bars to look ahead for return calculation.
+    
+    Returns:
+        dict with precision metrics per label class and overall quality score.
+    """
+    if trend_col not in df.columns or close_col not in df.columns:
+        raise ValueError(f"DataFrame must contain '{trend_col}' and '{close_col}' columns.")
+    
+    data = df[[close_col, trend_col]].copy()
+    data["forward_return"] = data[close_col].pct_change(forward_bars).shift(-forward_bars)
+    data = data.dropna()
+    
+    if data.empty:
+        logger.warning("Not enough data to validate label quality.")
+        return {"error": "Insufficient data"}
+    
+    results = {}
+    
+    # UP labels: what % had positive forward returns?
+    up_mask = data[trend_col] == TREND_UP
+    if up_mask.sum() > 0:
+        up_correct = (data.loc[up_mask, "forward_return"] > 0).mean()
+        results["up_precision"] = round(float(up_correct), 4)
+        results["up_count"] = int(up_mask.sum())
+    else:
+        results["up_precision"] = None
+        results["up_count"] = 0
+    
+    # DOWN labels: what % had negative forward returns?
+    down_mask = data[trend_col] == TREND_DOWN
+    if down_mask.sum() > 0:
+        down_correct = (data.loc[down_mask, "forward_return"] < 0).mean()
+        results["down_precision"] = round(float(down_correct), 4)
+        results["down_count"] = int(down_mask.sum())
+    else:
+        results["down_precision"] = None
+        results["down_count"] = 0
+    
+    # SIDEWAYS labels: should have low absolute returns
+    side_mask = data[trend_col] == TREND_SIDEWAYS
+    if side_mask.sum() > 0:
+        avg_abs_return = data.loc[side_mask, "forward_return"].abs().mean()
+        results["sideways_avg_abs_return"] = round(float(avg_abs_return), 6)
+        results["sideways_count"] = int(side_mask.sum())
+    else:
+        results["sideways_avg_abs_return"] = None
+        results["sideways_count"] = 0
+    
+    # Overall quality score (average of directional precisions)
+    precisions = [v for k, v in results.items() if k.endswith("_precision") and v is not None]
+    results["overall_quality"] = round(float(np.mean(precisions)), 4) if precisions else None
+    
+    # Label distribution
+    total = len(data)
+    results["distribution"] = {
+        "up_pct": round(float(up_mask.sum() / total * 100), 1),
+        "down_pct": round(float(down_mask.sum() / total * 100), 1),
+        "sideways_pct": round(float(side_mask.sum() / total * 100), 1),
+    }
+    
+    logger.info(
+        "Label Quality: UP=%.1f%% (%d), DOWN=%.1f%% (%d), SIDEWAYS=%.1f%% (%d) | "
+        "UP precision=%.2f%%, DOWN precision=%.2f%%, Overall=%.2f%%",
+        results["distribution"]["up_pct"], results["up_count"],
+        results["distribution"]["down_pct"], results["down_count"],
+        results["distribution"]["sideways_pct"], results["sideways_count"],
+        (results["up_precision"] or 0) * 100,
+        (results["down_precision"] or 0) * 100,
+        (results["overall_quality"] or 0) * 100,
+    )
+    
+    return results
 
 
 class MarketSentimentAnalyzer:

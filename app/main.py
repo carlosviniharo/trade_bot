@@ -2,11 +2,13 @@ import asyncio
 import sys
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.tasks.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import market_routers
 from app.core.database import Database
 from app.core.logging import AppLogger
+from app.core.config import settings
 from app.utils.helper import shutdown_indicator_executor
 
 # Set up logging
@@ -40,14 +42,13 @@ async def lifespan(app: FastAPI):
         logger.info("Thread pool executor shut down.")
 
 # Create FastAPI app with lifespan
-app = FastAPI(lifespan=lifespan)
-
-# Example route
-@app.get("/")
-async def read_root():
-    logger.info("Root endpoint accessed.")
-    return {"message": "Welcome to the FastAPI app!"}
-
+app = FastAPI(
+    lifespan=lifespan,
+    title=settings.APP_NAME,
+    # description=settings.APP_DESCRIPTION,
+    # version=settings.APP_VERSION,
+    middleware=settings.middleware
+    )
 
 # Include routers
 app.include_router(market_routers.router)
