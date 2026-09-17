@@ -8,6 +8,7 @@ env/
 .venv/
 .idea/
 .vscode/
+ta-lib/
 
 # Log files
 *.log

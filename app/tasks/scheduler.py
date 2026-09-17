@@ -94,12 +94,12 @@ async def scheduled_task():
         gc.collect()
 
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone="UTC")
 # loop = asyncio.get_event_loop()
 
 def start_scheduler():
     logger.info("Starting scheduler...")
-    trigger = CronTrigger(minute="14,29,44,59")
+    trigger = CronTrigger(minute="14,29,44,59", timezone="UTC")
     # trigger = CronTrigger(minute="*/1")
     scheduler.add_job(
         scheduled_task, 

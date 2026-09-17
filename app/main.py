@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         logger.error(f"Error during lifespan: {e}")
+        raise
 
     finally:
         shutdown_scheduler()  # Shutdown the scheduler
