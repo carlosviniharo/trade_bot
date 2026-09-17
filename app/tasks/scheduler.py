@@ -39,10 +39,13 @@ async def scheduled_task():
         if not df_merged.empty:
             telegram = TelegramOutput(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
 
+            # Ensure column names are plain strings (pd.concat can produce non-str keys)
+            df_merged.columns = df_merged.columns.astype(str)
+            
             # Prepare event dictionaries
             records = df_merged.to_dict(orient="records")
             
-            top_moves_v = [MarketEvent(**event).model_dump() for event in records]
+            top_moves_v = [MarketEvent(**{str(k): v for k, v in event.items()}).model_dump() for event in records]
 
             # Insert non-empty lists and log
             if top_moves_v:
