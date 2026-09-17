@@ -1,7 +1,5 @@
 ## Stage 1: Builder
-# Keep the builder interpreter identical to the runtime interpreter.  In
-# particular, NumPy 1.26.x supports Python 3.9 through 3.12, while
-# ubuntu:latest can provide a newer Python release.
+# Keep the builder interpreter identical to the runtime interpreter.
 FROM python:3.12-slim AS builder
 
 # Copy uv binary from official image (no apt install needed)
@@ -22,6 +20,9 @@ RUN wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-
     make && make install && \
     rm -rf /tmp/ta-lib-0.6.4*
 
+# Create virtual environment outside /app so host volume mounts (-v ${PWD}:/app) do not overwrite it
+ENV UV_PROJECT_ENVIRONMENT="/opt/venv"
+
 # Set the working directory
 WORKDIR /app
 
@@ -32,14 +33,17 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Install TA-Lib Python wrapper inside the virtual environment
-RUN uv pip install --python .venv/bin/python --no-cache ta-lib
+RUN uv pip install --python /opt/venv/bin/python --no-cache ta-lib
 
-# Stage 2: Final runtime environment (Python Slim)
+## Stage 2: Final runtime environment (Python Slim)
 FROM python:3.12-slim
 
-# Copy only the application runtime dependencies from the builder.
-COPY --from=builder /app/.venv /app/.venv
+# Copy only the application runtime dependencies from the builder
+COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /usr/lib/libta_lib.so* /usr/lib/
+
+# Add virtual environment to PATH
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Set the working directory
 WORKDIR /app
@@ -47,11 +51,5 @@ WORKDIR /app
 # Copy the application code
 COPY . .
 
-# Start an interactive shell for debugging
-#CMD ["/bin/bash"]
-
-# Use the virtual environment Python for the command
-CMD ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8080"]
-
-# Command used for Kubernetes
-#CMD ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "80"]
+# Run uvicorn on port 8000 using the container's virtual environment
+CMD ["python", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]

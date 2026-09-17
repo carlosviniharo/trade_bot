@@ -1,7 +1,24 @@
+# Virtual environments
+.venv/
 venv/
+env/
+
+# Local archives and source builds
+ta-lib/
+talib/
+
+# Git and IDE
+.git/
+.idea/
+.vscode/
+
+# Python cache and testing
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.log
+
+# Environment and OS
 .DS_Store
 .env
