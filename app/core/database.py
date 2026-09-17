@@ -9,16 +9,23 @@ class Database:
 
     @classmethod
     async def connect(cls):
-        cls.client = AsyncIOMotorClient(settings.MONGODB_URI)
-        cls.db = cls.client[settings.MONGODB_NAME]
-        # Check if the database exists
-        if settings.MONGODB_NAME not in await cls.client.list_database_names():
-            # Database does not exist, create it and insert an initial document
-            await cls.create_initial_document()
+        try:
+            cls.client = AsyncIOMotorClient(settings.MONGODB_URI)
+            cls.db = cls.client[settings.MONGODB_NAME]
+            # Ping the server to confirm connectivity (SRV DNS resolved here)
+            await cls.client.admin.command("ping")
+            # Check if the database exists; create it if not
+            if settings.MONGODB_NAME not in await cls.client.list_database_names():
+                await cls.create_initial_document()
+        except Exception as e:
+            cls.client = None
+            cls.db = None
+            raise RuntimeError(f"Failed to connect to MongoDB: {e}") from e
 
     @classmethod
     async def disconnect(cls):
-        cls.client.close()
+        if cls.client is not None:
+            cls.client.close()
 
     @classmethod
     async def create_initial_document(cls):

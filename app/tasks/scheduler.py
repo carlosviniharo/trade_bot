@@ -107,5 +107,8 @@ def start_scheduler():
 
 def shutdown_scheduler():
     logger.info("Shutting down the scheduler...")
-    scheduler.shutdown()
-    logger.info("Scheduler shut down.")
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("Scheduler shut down.")
+    else:
+        logger.info("Scheduler was not running, skipping shutdown.")
