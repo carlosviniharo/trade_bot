@@ -1008,17 +1008,17 @@ class AMSTL(BaseAnalyzer):
     """
 
     def __init__(self, window_sizes=None, threshold_std=1.0, atr_window=14, **kwargs) -> None:
+        # --- Extract AMSTL-specific kwargs before forwarding the rest to BaseAnalyzer ---
+        self.min_trend_duration = kwargs.pop("min_trend_duration", 5)
+        self.cost_floor_pct = kwargs.pop("cost_floor_pct", 0.0005)  # 0.05%
+        self.grad_scale_window = kwargs.pop("grad_scale_window", 30)
+        self.atr_clip_max = kwargs.pop("atr_clip_max", 5.0)
+        self.confirmation_bars = kwargs.pop("confirmation_bars", 3)
+
         super().__init__(**kwargs)
         self.window_sizes = window_sizes if window_sizes is not None else [15, 30, 60]
         self.threshold_std = threshold_std
         self.atr_window = atr_window
-
-        # --- Parameterized Magic Numbers ---
-        self.min_trend_duration = kwargs.get("min_trend_duration", 5)
-        self.cost_floor_pct = kwargs.get("cost_floor_pct", 0.0005)  # 0.05%
-        self.grad_scale_window = kwargs.get("grad_scale_window", 30)
-        self.atr_clip_max = kwargs.get("atr_clip_max", 5.0)
-        self.confirmation_bars = kwargs.get("confirmation_bars", 3)
 
         # --- Caching Mechanism ---
         self._cache_key = None
