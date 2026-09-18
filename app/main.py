@@ -1,14 +1,14 @@
 import asyncio
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from app.tasks.scheduler import start_scheduler, shutdown_scheduler
-from app.routers import market_routers
+
+from app.core.config import settings
 from app.core.database import Database
 from app.core.logging import AppLogger
-from app.core.config import settings
+from app.routers import market_routers
+from app.tasks.scheduler import shutdown_scheduler, start_scheduler
 from app.utils.helper import shutdown_indicator_executor
 
 # Set up logging

@@ -1,18 +1,14 @@
-import asyncio
-import sys
-from fastapi import HTTPException
-from apscheduler.triggers.cron import CronTrigger
 import pandas as pd
-
-from app.models.market_models import MarketEvent
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from fastapi import HTTPException
+
+from app.core.config import settings
 from app.core.database import get_database
 from app.core.logging import AppLogger
+from app.models.market_models import MarketEvent
 from app.utils.helper import BinanceVolumeAnalyzer, format_message_events
-from app.utils.whatsapp_connector import WhatsAppOutput
 from app.utils.telegram_connector import TelegramOutput
-from app.core.config import settings
 
 # Initialize logging
 logger = AppLogger.get_logger()
@@ -63,7 +59,7 @@ async def scheduled_task():
                     await telegram.send_text_message(message)
                 except Exception as e:
                     logger.exception(f"Failed to send message to Telegram: {e}")
-                    raise HTTPException(status_code=502, detail=f"Telegram delivery failed: {str(e)}")
+                    raise HTTPException(status_code=502, detail=f"Telegram delivery failed: {str(e)}") from e
                 finally:
                     await telegram.close()
             else:

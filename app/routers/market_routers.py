@@ -1,35 +1,28 @@
 # routers/user_router.py
-from typing import List
+
 from fastapi import APIRouter, HTTPException
-from fastapi.params import Query, Depends
+from fastapi.params import Depends, Query
+
 from app.models.market_models import (
     AtrResults,
-    MarketEventRead,
-    User,
-    UserCreate,
     MarketEvent,
     MarketEventCreate,
-    Message,
     MarketSentiment,
+    MarketTrendLabel,
+    Message,
     PaginatedResponse,
     XGBoostPredictionResult,
-    MarketTrendLabel,
 )
 from app.services.market_services import (
-    create_user,
-    get_online_market_event,
-    get_user,
-    list_users,
-    update_user,
-    delete_user,
-    get_atr,
     create_market_event,
+    get_atr,
+    get_market_sentiment,
+    get_market_trend_label,
+    get_online_market_event,
+    get_xgboosr_prediction,
     list_market_events,
     send_messages,
-    get_market_sentiment,
     send_messages_tg,
-    get_xgboosr_prediction,
-    get_market_trend_label,
 )
 from app.utils.helper import PaginationParams
 
@@ -75,7 +68,7 @@ async def create_new_market_event(market_event: MarketEventCreate):
     return await create_market_event(market_event)
 
 
-@router.get("/bestMarketEvents/", response_model=List[MarketEvent])
+@router.get("/bestMarketEvents/", response_model=list[MarketEvent])
 async def get_best_market_events():
     return await get_online_market_event()
 
@@ -107,7 +100,7 @@ async def send_tg_message(message: Message):
 async def fetch_market_sentiment():
     sentiment = await get_market_sentiment()
     if sentiment is None:
-        raise HTTPException(status_code=404, detail=f"The market sentiment calculation did not work")
+        raise HTTPException(status_code=404, detail="The market sentiment calculation did not work")
     return sentiment
 
 
@@ -124,7 +117,7 @@ async def get_xgboost_prediction(symbol: str = Query(...), time_frame: str = Que
     return pred
 
 
-@router.get("/marketTrendLabel/", response_model=List[MarketTrendLabel])
+@router.get("/marketTrendLabel/", response_model=list[MarketTrendLabel])
 async def market_trend_label(symbol: str = Query(...), time_frame: str = Query(...), candel_limit: int = Query(50)):
     """
     Get market trend labels for a given symbol.

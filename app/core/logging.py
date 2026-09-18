@@ -1,10 +1,10 @@
 import logging
-from typing import Optional
+
 from app.core.config import settings
 
 
 class AppLogger:
-    _logger: Optional[logging.Logger] = None  # Use logging.Logger directly
+    _logger: logging.Logger | None = None  # Use logging.Logger directly
 
     @classmethod
     def get_logger(cls) -> logging.Logger:  # Use logging.Logger directly

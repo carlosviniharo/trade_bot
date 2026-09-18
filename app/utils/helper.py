@@ -2,23 +2,23 @@ import asyncio
 import re
 import time
 import traceback
+from collections.abc import Callable
 from concurrent.futures.thread import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, Self, Tuple, TypeVar
+from datetime import datetime
+from typing import Any, Self, TypeVar
 
+import ccxt.async_support as ccxt_async
 import numpy as np
 import pandas as pd
 import requests
 import talib as ta
 from fastapi import Query
+from numba import jit
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from statsmodels.tsa.stattools import acf
 from xgboost import XGBRegressor
-from numba import jit
-
-import ccxt.async_support as ccxt_async
 
 from app.core.logging import AppLogger
 
@@ -225,7 +225,7 @@ class BaseAnalyzer:
         if hasattr(self, "clear_data"):
             self.clear_data()
 
-    async def get_futures_pairs(self, pair: str = "USDT") -> List[str]:
+    async def get_futures_pairs(self, pair: str = "USDT") -> list[str]:
         """
         Fetch all future tickets pairs.
 
@@ -530,7 +530,7 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         X_test: pd.DataFrame,
         variance_threshold: float = 0.01,
         correlation_threshold: float = 0.85,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, List[str]]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
         """
         Feature selection using variance threshold and correlation filtering.
         """
@@ -907,7 +907,7 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
 
         return self
 
-    async def predict_levels(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    async def predict_levels(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Make predictions on new data.
         Returns absolute price levels.
@@ -976,7 +976,8 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
 
         elapsed_time = time.time() - start_time
 
-        smart_round = lambda x: float("{:.4g}".format(x) if abs(x) < 1 else "{:.4f}".format(x))
+        def smart_round(x):
+            return float(f"{x:.4g}" if abs(x) < 1 else f"{x:.4f}")
 
         return {
             "current_price": latest_close,
@@ -1006,9 +1007,9 @@ class AMSTL(BaseAnalyzer):
     Adaptive Multi-Scale Trend Labeling (Optimized)
     """
 
-    def __init__(self, window_sizes=[15, 30, 60], threshold_std=1.0, atr_window=14, **kwargs) -> None:
+    def __init__(self, window_sizes=None, threshold_std=1.0, atr_window=14, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.window_sizes = window_sizes
+        self.window_sizes = window_sizes if window_sizes is not None else [15, 30, 60]
         self.threshold_std = threshold_std
         self.atr_window = atr_window
 
@@ -1351,7 +1352,7 @@ class MarketSentimentAnalyzer:
     def __init__(self, now_provider: Callable[[], datetime] = datetime.now) -> None:
         self._now = now_provider
 
-    def fetch_market_data(self) -> Optional[List[Dict[str, Any]]]:
+    def fetch_market_data(self) -> list[dict[str, Any]] | None:
         """Fetch market data from CoinGecko API."""
         try:
             response = requests.get(self._COINGECKO_API_URL, params=self._DEFAULT_PARAMS, timeout=10)
@@ -1361,7 +1362,7 @@ class MarketSentimentAnalyzer:
             logger.error(f"[ERROR] Unable to fetch market data: {e}")
             return None
 
-    def calculate_weighted_sentiment(self, market_data: List[Dict[str, Any]]) -> Optional[float]:
+    def calculate_weighted_sentiment(self, market_data: list[dict[str, Any]]) -> float | None:
         """Calculate weighted sentiment based on market cap and price changes."""
         total_market_cap = 0.0
         weighted_change_sum = 0.0
@@ -1382,7 +1383,7 @@ class MarketSentimentAnalyzer:
 
         return weighted_change_sum / total_market_cap
 
-    def render_report(self, sentiment_score: Optional[float]) -> str:
+    def render_report(self, sentiment_score: float | None) -> str:
         """Render sentiment report as formatted string."""
         timestamp = self._now().isoformat(sep=" ", timespec="seconds")
         report = "\n--- Market Sentiment Report ---"
@@ -1418,7 +1419,7 @@ class PaginationParams:
 ###############################################################################
 
 
-def format_message_events(*args: Dict[str, Any]) -> str:
+def format_message_events(*args: dict[str, Any]) -> str:
     """
     Formats message data from multiple dictionaries, filtering out messages
     where the price changes are less than MIN_PRICE_CHANGE.
@@ -1438,13 +1439,11 @@ def format_message_events(*args: Dict[str, Any]) -> str:
         # Build message using f-string
         try:
             messages.append(
-                (
-                    f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
-                    f"Price Change: {raw.get('price_rate', 0):.2f}%\n"
-                    f"ATR Percentage: {raw.get('atr_pct', 0):.2f}%\n"
-                    f"Close Price: {raw.get('close', 0)}\n"
-                    f"──────────────"
-                )
+                f"\nSymbol: {raw.get('symbol', 'N/A')}\n"
+                f"Price Change: {raw.get('price_rate', 0):.2f}%\n"
+                f"ATR Percentage: {raw.get('atr_pct', 0):.2f}%\n"
+                f"Close Price: {raw.get('close', 0)}\n"
+                f"──────────────"
             )
         except ValueError as e:
             logger.error(f"[ERROR] ValueError: {e}")

@@ -14,9 +14,11 @@ Classes:
 
 """
 
-from fastapi import HTTPException
+from collections.abc import Callable
+from typing import Any
+
 import httpx
-from typing import Text, Dict, Any, Callable, List, Optional
+from fastapi import HTTPException
 
 
 # TODO: Include webhook support for TelegramInput and TelegramOutput, so there is not need to
@@ -32,7 +34,7 @@ class TelegramOutput:
         client (httpx.AsyncClient): Asynchronous HTTP client for requests.
     """
 
-    def __init__(self, bot_token: Text, chat_id: Text) -> None:
+    def __init__(self, bot_token: str, chat_id: str) -> None:
         """
         Initialize TelegramOutput with bot token and chat ID.
 
@@ -45,7 +47,7 @@ class TelegramOutput:
         self.api_url = f"https://api.telegram.org/bot{bot_token}"
         self.client = httpx.AsyncClient()
 
-    async def send_text_message(self, message: Text, **kwargs: Any) -> httpx.Response:
+    async def send_text_message(self, message: str, **kwargs: Any) -> httpx.Response:
         """
         Sends a plain text message to the configured Telegram chat.
 
@@ -65,9 +67,9 @@ class TelegramOutput:
             response.raise_for_status()
             return response
         except httpx.RequestError as e:
-            raise HTTPException(status_code=500, detail=f"Telegram API request error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Telegram API request error: {str(e)}") from e
 
-    async def send_custom_json(self, json_message: Dict[Text, Any]) -> None:
+    async def send_custom_json(self, json_message: dict[str, Any]) -> None:
         """
         Sends a raw JSON payload to Telegram API.
 
@@ -84,9 +86,9 @@ class TelegramOutput:
             response = await self.client.post(f"{self.api_url}/sendMessage", json=json_message)
             response.raise_for_status()
         except httpx.RequestError as e:
-            raise HTTPException(status_code=500, detail=f"Telegram API request error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Telegram API request error: {str(e)}") from e
 
-    async def send_batch_messages(self, recipient_messages: List[Dict[Text, Any]]) -> None:
+    async def send_batch_messages(self, recipient_messages: list[dict[str, Any]]) -> None:
         """
         Sends a batch of messages to multiple recipients.
 
@@ -128,7 +130,7 @@ class TelegramInput:
             returns a text response.
     """
 
-    def __init__(self, bot_token: Text, agent_handler: Callable[[Text, Text], Text]) -> None:
+    def __init__(self, bot_token: str, agent_handler: Callable[[str, str], str]) -> None:
         """
         Initialize TelegramInput with bot token and agent handler.
 
@@ -140,7 +142,7 @@ class TelegramInput:
         self.output = TelegramOutput(bot_token, "")  # Chat ID can be set dynamically
         self.agent_handler = agent_handler
 
-    async def process_update(self, update: Dict[str, Any]) -> Dict[str, str]:
+    async def process_update(self, update: dict[str, Any]) -> dict[str, str]:
         """
         Processes a single Telegram update payload.
 

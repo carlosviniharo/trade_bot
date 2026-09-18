@@ -1,29 +1,28 @@
 # services/user_service.py
 import asyncio
-from typing import List
 
+import pandas as pd
 from bson import ObjectId
 from fastapi import HTTPException
-import pandas as pd
 
+from app.core.config import settings
+from app.core.database import get_database
 from app.core.logging import AppLogger
 from app.models.market_models import (
     AtrResult,
     AtrResults,
-    MarketTrendLabel,
-    User,
-    UserCreate,
     MarketEvent,
     MarketEventCreate,
     MarketEventRead,
     MarketSentiment,
+    MarketTrendLabel,
     PaginatedResponse,
+    UserCreate,
     XGBoostPredictionResult,
 )
-from app.core.database import get_database
 from app.utils.helper import (
-    BaseAnalyzer,
     AMSTL,
+    BaseAnalyzer,
     BinanceVolumeAnalyzer,
     IndicatorComputer,
     MarketSentimentAnalyzer,
@@ -31,9 +30,8 @@ from app.utils.helper import (
     XGBoostSupportResistancePredictor,
     format_symbol_name,
 )
-from app.utils.whatsapp_connector import WhatsAppOutput
-from app.core.config import settings
 from app.utils.telegram_connector import TelegramOutput
+from app.utils.whatsapp_connector import WhatsAppOutput
 
 # Initialize logging
 logger = AppLogger.get_logger()
@@ -102,7 +100,7 @@ async def create_market_event(market_event: MarketEventCreate):
 
 
 # TODO: Fix the validacion when nan values comes to the json.
-async def get_online_market_event() -> List[MarketEvent]:
+async def get_online_market_event() -> list[MarketEvent]:
     analyzer = BinanceVolumeAnalyzer()
 
     try:
@@ -171,7 +169,7 @@ async def send_messages(message):
         await whatsapp.send_text_message("447729752680", msg["message"])
     except Exception as e:
         # Raising an HTTPException with a status code and the error message
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}") from e
     finally:
         await whatsapp.close()
     return {"message": "Message sent successfully", "success": True}
@@ -184,7 +182,7 @@ async def send_messages_tg(message):
         await telegram.send_text_message(msg["message"])
     except Exception as e:
         logger.exception(f"Failed to send message to Telegram: {e}")
-        raise HTTPException(status_code=502, detail=f"Telegram delivery failed: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Telegram delivery failed: {str(e)}") from e
     finally:
         await telegram.close()
 
@@ -198,7 +196,7 @@ async def get_market_sentiment() -> MarketSentiment:
         sentiment_score = analyzer.calculate_weighted_sentiment(market_data)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}") from e
 
     return MarketSentiment(report=analyzer.render_report(sentiment_score))
 
@@ -230,12 +228,12 @@ async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredict
         prediction["time_frame"] = time_frame
         return XGBoostPredictionResult(**prediction)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}") from e
     finally:
         await predictor.close()
 
 
-async def get_market_trend_label(symbol: str, time_frame: str, candle_limit: int = 50) -> List[MarketTrendLabel]:
+async def get_market_trend_label(symbol: str, time_frame: str, candle_limit: int = 50) -> list[MarketTrendLabel]:
     model_label = AMSTL()
     symbol = format_symbol_name(symbol)
     try:
@@ -246,6 +244,6 @@ async def get_market_trend_label(symbol: str, time_frame: str, candle_limit: int
         result = pd.merge(df, labels, on="timestamp", how="inner").tail(candle_limit)
         return [MarketTrendLabel(close=row.close, trend=row.trend, timestamp=row.Index) for row in result.itertuples()]
     except Exception as e:
-        raise RuntimeError(f"Error initializing model: {e}")
+        raise RuntimeError(f"Error initializing model: {e}") from e
     finally:
         await model_label.close()

@@ -1,6 +1,5 @@
-from pydantic_settings import BaseSettings
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, List
+from pydantic_settings import BaseSettings
 from starlette.middleware import Middleware
 
 
@@ -10,15 +9,15 @@ class AppSettings(BaseSettings):
     MONGODB_URI: str = "mongodb://localhost:27017"
     MONGODB_NAME: str = "mydatabase"
     LOG_LEVEL: str = "INFO"
-    WHATSAPP_TOKEN: Optional[str] = None
-    PHONE_NUMBER_ID: Optional[str] = None
-    TELEGRAM_BOT_TOKEN: Optional[str] = None
-    TELEGRAM_CHAT_ID: Optional[str] = None
+    WHATSAPP_TOKEN: str | None = None
+    PHONE_NUMBER_ID: str | None = None
+    TELEGRAM_BOT_TOKEN: str | None = None
+    TELEGRAM_CHAT_ID: str | None = None
     DEBUG: bool = False
     BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:5173"]
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
-    middleware: List[Middleware] = [
+    middleware: list[Middleware] = [
         Middleware(
             CORSMiddleware,
             allow_origins=["*"],  # BACKEND_CORS_ORIGINS

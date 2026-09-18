@@ -1,21 +1,20 @@
 from datetime import datetime
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pytest
 
 from app.utils.helper import (
     AMSTL,
-    BinanceVolumeAnalyzer,
     TREND_DOWN,
     TREND_SIDEWAYS,
     TREND_UP,
+    BinanceVolumeAnalyzer,
     XGBoostSupportResistancePredictor,
     _numba_state_machine,
     format_message_events,
     validate_label_quality,
 )
-
 
 # Test cases for BaseAnalyzer and BinanceVolumeAnalyzer
 

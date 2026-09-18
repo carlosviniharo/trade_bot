@@ -1,6 +1,6 @@
-from typing import Text, Dict, Any, Optional, List
+from typing import Any
+
 import httpx
-import json
 
 from app.core.logging import AppLogger
 
@@ -21,7 +21,7 @@ class WhatsAppOutput:
         api_url (Text): The API endpoint for sending messages.
     """
 
-    def __init__(self, access_token: Text, phone_number_id: Text) -> None:
+    def __init__(self, access_token: str, phone_number_id: str) -> None:
         """
         Args:
             access_token (Text): The access token for the WhatsApp Cloud API.
@@ -32,7 +32,7 @@ class WhatsAppOutput:
         self.api_url = f"https://graph.facebook.com/v13.0/{phone_number_id}/messages"
         self.client = httpx.AsyncClient()
 
-    async def send_text_message(self, recipient_id: Text, message: Text, **kwargs: Any) -> None:
+    async def send_text_message(self, recipient_id: str, message: str, **kwargs: Any) -> None:
         """Sends a text message to a recipient.
 
         Args:
@@ -50,9 +50,9 @@ class WhatsAppOutput:
             response.raise_for_status()
         except httpx.RequestError as e:
             logger.error(f"Failed to send message: {e}")
-            raise Exception(f"WhatsApp API error: {str(e)}")
+            raise Exception(f"WhatsApp API error: {str(e)}") from e
 
-    async def send_batch_messages(self, recipient_messages: List[Dict[Text, Any]]) -> None:
+    async def send_batch_messages(self, recipient_messages: list[dict[str, Any]]) -> None:
         """Sends a batch of messages to multiple recipients.
 
         Args:
@@ -67,7 +67,7 @@ class WhatsAppOutput:
             message = entry["message"]
             await self.send_text_message(recipient_id, message)
 
-    async def send_custom_json(self, recipient_id: Text, json_message: Dict[Text, Any], **kwargs: Any) -> None:
+    async def send_custom_json(self, recipient_id: str, json_message: dict[str, Any], **kwargs: Any) -> None:
         """Sends a custom JSON message to a recipient.
 
         Args:

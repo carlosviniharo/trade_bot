@@ -110,7 +110,9 @@ select = [
     "UP",  # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long (handled by formatter)
+    "E501",   # line too long (handled by formatter)
+    "B008",   # Depends() in defaults is idiomatic FastAPI
+    "UP046",  # Pydantic Generic[T] doesn't support PEP 695 yet
 ]
 
 [tool.ruff.lint.isort]

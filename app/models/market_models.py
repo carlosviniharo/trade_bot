@@ -1,7 +1,8 @@
 # models/user.py
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Generic, TypeVar
+
 from pydantic import BaseModel, Field
-from typing import Optional, List, TypeVar, Generic
 
 T = TypeVar("T")
 
@@ -23,11 +24,11 @@ class User(UserBase):
 class MarketEvent(BaseModel):
     symbol: str
     event_timestamp: datetime
-    price_rate: Optional[float] = 0
-    atr_pct: Optional[float] = 0
+    price_rate: float | None = 0
+    atr_pct: float | None = 0
     close: float
-    date_of_creation: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
-    date_of_modification: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    date_of_creation: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
+    date_of_modification: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class MarketEventCreate(MarketEvent):
@@ -46,8 +47,8 @@ class AtrResult(BaseModel):
 
 
 class AtrResults(BaseModel):
-    timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
-    atr_results: List[AtrResult]
+    timestamp: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
+    atr_results: list[AtrResult]
 
 
 class Message(BaseModel):
@@ -63,7 +64,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     total: int
     page: int
     limit: int
-    items: List[T]
+    items: list[T]
 
 
 class XGBoostPredictionResult(BaseModel):
@@ -81,4 +82,4 @@ class XGBoostPredictionResult(BaseModel):
 class MarketTrendLabel(BaseModel):
     close: float
     trend: int
-    timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
