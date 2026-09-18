@@ -51,5 +51,4 @@ WORKDIR /app
 # Copy the application code
 COPY . .
 
-# Run uvicorn on port 8000 using the container's virtual environment
-CMD ["python", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
