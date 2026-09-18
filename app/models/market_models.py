@@ -5,6 +5,7 @@ from typing import Optional, List, TypeVar, Generic
 
 T = TypeVar("T")
 
+
 class UserBase(BaseModel):
     name: str
     email: str
@@ -35,7 +36,7 @@ class MarketEventCreate(MarketEvent):
 
 class MarketEventRead(MarketEvent):
     id: str
-    
+
 
 class AtrResult(BaseModel):
     timeframe: str
@@ -75,6 +76,7 @@ class XGBoostPredictionResult(BaseModel):
     risk_reward_ratio: float
     timestamp: datetime
     prediction_time_ms: float
+
 
 class MarketTrendLabel(BaseModel):
     close: float

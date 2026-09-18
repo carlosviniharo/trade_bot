@@ -14,11 +14,12 @@ from app.utils.helper import shutdown_indicator_executor
 # Set up logging
 logger = AppLogger.get_logger()
 
+
 # Define the lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Set Windows event loop policy
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     try:
@@ -42,14 +43,15 @@ async def lifespan(app: FastAPI):
         shutdown_indicator_executor()  # Shutdown thread pool executor
         logger.info("Thread pool executor shut down.")
 
+
 # Create FastAPI app with lifespan
 app = FastAPI(
     lifespan=lifespan,
     title=settings.APP_NAME,
     # description=settings.APP_DESCRIPTION,
     # version=settings.APP_VERSION,
-    middleware=settings.middleware
-    )
+    middleware=settings.middleware,
+)
 
 # Include routers
 app.include_router(market_routers.router)

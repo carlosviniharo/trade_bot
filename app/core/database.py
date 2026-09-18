@@ -2,7 +2,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.core.config import settings
 
 
-
 class Database:
     client: AsyncIOMotorClient = None
     db = None
@@ -33,7 +32,6 @@ class Database:
         initial_document = {"init": "This is a sample document to create the database."}
         collection_name = "my_collection"  # Replace with your actual collection name
         await cls.db[collection_name].insert_one(initial_document)
-
 
 
 # MongoDB dependency

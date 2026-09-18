@@ -17,6 +17,7 @@ from app.core.config import settings
 # Initialize logging
 logger = AppLogger.get_logger()
 
+
 async def scheduled_task():
     analyzer = BinanceVolumeAnalyzer()
 
@@ -32,19 +33,19 @@ async def scheduled_task():
 
         # Merge the dataframes and group by symbol and event_timestamp
         df_merged = pd.concat([df_top_price_increase, df_top_price_decrease])
-        
+
         # Clear analyzer data to prevent memory accumulation
         analyzer.clear_data()
-        
+
         if not df_merged.empty:
             telegram = TelegramOutput(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
 
             # Ensure column names are plain strings (pd.concat can produce non-str keys)
             df_merged.columns = df_merged.columns.astype(str)
-            
+
             # Prepare event dictionaries
             records = df_merged.to_dict(orient="records")
-            
+
             top_moves_v = [MarketEvent(**{str(k): v for k, v in event.items()}).model_dump() for event in records]
 
             # Insert non-empty lists and log
@@ -62,28 +63,26 @@ async def scheduled_task():
                     await telegram.send_text_message(message)
                 except Exception as e:
                     logger.exception(f"Failed to send message to Telegram: {e}")
-                    raise HTTPException(
-                        status_code=502, detail=f"Telegram delivery failed: {str(e)}"
-                    )
+                    raise HTTPException(status_code=502, detail=f"Telegram delivery failed: {str(e)}")
                 finally:
                     await telegram.close()
             else:
                 logger.info("No message to send")
         else:
             logger.info("No trade data to insert")
-        
+
         # Explicitly delete DataFrames to free memory
-        if 'df_top_price_increase' in locals():
+        if "df_top_price_increase" in locals():
             del df_top_price_increase
-        if 'df_top_price_decrease' in locals():
+        if "df_top_price_decrease" in locals():
             del df_top_price_decrease
-        if 'df_merged' in locals():
+        if "df_merged" in locals():
             del df_merged
-        if 'top_moves_v' in locals():
+        if "top_moves_v" in locals():
             del top_moves_v
-        if 'records' in locals():
+        if "records" in locals():
             del records
-        
+
     except Exception as e:
         logger.error(f"An error occurred: {e}")
 
@@ -91,22 +90,21 @@ async def scheduled_task():
         await analyzer.close()
         # Force garbage collection after cleanup
         import gc
+
         gc.collect()
 
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 # loop = asyncio.get_event_loop()
 
+
 def start_scheduler():
     logger.info("Starting scheduler...")
     trigger = CronTrigger(minute="14,29,44,59", timezone="UTC")
     # trigger = CronTrigger(minute="*/1")
-    scheduler.add_job(
-        scheduled_task, 
-        trigger,
-        misfire_grace_time=2
-        )
+    scheduler.add_job(scheduled_task, trigger, misfire_grace_time=2)
     scheduler.start()
+
 
 def shutdown_scheduler():
     logger.info("Shutting down the scheduler...")

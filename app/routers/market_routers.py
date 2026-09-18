@@ -13,7 +13,7 @@ from app.models.market_models import (
     MarketSentiment,
     PaginatedResponse,
     XGBoostPredictionResult,
-    MarketTrendLabel
+    MarketTrendLabel,
 )
 from app.services.market_services import (
     create_user,
@@ -22,11 +22,11 @@ from app.services.market_services import (
     list_users,
     update_user,
     delete_user,
-    get_atr, 
+    get_atr,
     create_market_event,
     list_market_events,
     send_messages,
-    get_market_sentiment, 
+    get_market_sentiment,
     send_messages_tg,
     get_xgboosr_prediction,
     get_market_trend_label,
@@ -64,21 +64,26 @@ router = APIRouter()
 #         raise HTTPException(status_code=404, detail="User not found")
 #     return {"message": "User deleted"}
 
+
 @router.get("/health")
 def health_check():
     return {"status": "ok"}
+
 
 @router.post("/marketEvents/", response_model=MarketEvent)
 async def create_new_market_event(market_event: MarketEventCreate):
     return await create_market_event(market_event)
 
+
 @router.get("/bestMarketEvents/", response_model=List[MarketEvent])
 async def get_best_market_events():
     return await get_online_market_event()
 
+
 @router.get("/marketEvents/", response_model=PaginatedResponse)
 async def get_list_market_events(params: PaginationParams = Depends()) -> PaginatedResponse:
     return await list_market_events(params)
+
 
 @router.get("/getAtrBySymbol/", response_model=AtrResults)
 async def get_atr_by_symbol(symbol: str = Query(...)):
@@ -87,9 +92,11 @@ async def get_atr_by_symbol(symbol: str = Query(...)):
         raise HTTPException(status_code=404, detail=f"ATR data for symbol '{symbol}' not found")
     return atrs
 
+
 @router.post("/sendMessageWP/", response_model=Message)
 async def send_wp_message(message: Message):
     return await send_messages(message)
+
 
 @router.post("/sendMessageTG/", response_model=Message)
 async def send_tg_message(message: Message):
@@ -100,10 +107,9 @@ async def send_tg_message(message: Message):
 async def fetch_market_sentiment():
     sentiment = await get_market_sentiment()
     if sentiment is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"The market sentiment calculation did not work")
+        raise HTTPException(status_code=404, detail=f"The market sentiment calculation did not work")
     return sentiment
+
 
 @router.get("/xgboostPrediction/", response_model=XGBoostPredictionResult)
 async def get_xgboost_prediction(symbol: str = Query(...), time_frame: str = Query(...)):
@@ -113,9 +119,10 @@ async def get_xgboost_prediction(symbol: str = Query(...), time_frame: str = Que
     pred = await get_xgboosr_prediction(symbol, time_frame)
     if pred is None:
         raise HTTPException(
-            status_code=404,
-            detail=f"The support and resistance calculation for'{symbol}' did not work")
+            status_code=404, detail=f"The support and resistance calculation for'{symbol}' did not work"
+        )
     return pred
+
 
 @router.get("/marketTrendLabel/", response_model=List[MarketTrendLabel])
 async def market_trend_label(symbol: str = Query(...), time_frame: str = Query(...), candel_limit: int = Query(50)):
@@ -124,7 +131,5 @@ async def market_trend_label(symbol: str = Query(...), time_frame: str = Query(.
     """
     labels = await get_market_trend_label(symbol, time_frame, candel_limit)
     if labels is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"The market trend label calculation for'{symbol}' did not work")
+        raise HTTPException(status_code=404, detail=f"The market trend label calculation for'{symbol}' did not work")
     return labels

@@ -18,6 +18,7 @@ from fastapi import HTTPException
 import httpx
 from typing import Text, Dict, Any, Callable, List, Optional
 
+
 # TODO: Include webhook support for TelegramInput and TelegramOutput, so there is not need to
 #  include the chat ID in the constructors.
 class TelegramOutput:

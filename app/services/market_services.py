@@ -12,25 +12,25 @@ from app.models.market_models import (
     AtrResults,
     MarketTrendLabel,
     User,
-    UserCreate, 
-    MarketEvent, 
-    MarketEventCreate, 
-    MarketEventRead, 
+    UserCreate,
+    MarketEvent,
+    MarketEventCreate,
+    MarketEventRead,
     MarketSentiment,
     PaginatedResponse,
-    XGBoostPredictionResult
-    )
+    XGBoostPredictionResult,
+)
 from app.core.database import get_database
 from app.utils.helper import (
     BaseAnalyzer,
     AMSTL,
     BinanceVolumeAnalyzer,
-    IndicatorComputer, 
-    MarketSentimentAnalyzer, 
+    IndicatorComputer,
+    MarketSentimentAnalyzer,
     PaginationParams,
-    XGBoostSupportResistancePredictor, 
-    format_symbol_name
-    )
+    XGBoostSupportResistancePredictor,
+    format_symbol_name,
+)
 from app.utils.whatsapp_connector import WhatsAppOutput
 from app.core.config import settings
 from app.utils.telegram_connector import TelegramOutput
@@ -38,14 +38,10 @@ from app.utils.telegram_connector import TelegramOutput
 # Initialize logging
 logger = AppLogger.get_logger()
 
+
 # Helper to convert BSON ObjectId to string and format the user data
 def user_helper(user) -> dict:
-    return {
-        "id": str(user["_id"]),
-        "name": user["name"],
-        "email": user["email"],
-        "age": user["age"]
-    }
+    return {"id": str(user["_id"]), "name": user["name"], "email": user["email"], "age": user["age"]}
 
 
 async def create_user(user_data: UserCreate):
@@ -94,7 +90,7 @@ def market_events_helper(market_event_record) -> MarketEventRead:
         atr_pct=market_event_record["atr_pct"],
         close=market_event_record["close"],
         date_of_creation=market_event_record["date_of_creation"],
-        date_of_modification=market_event_record["date_of_modification"]
+        date_of_modification=market_event_record["date_of_modification"],
     )
 
 
@@ -104,20 +100,21 @@ async def create_market_event(market_event: MarketEventCreate):
     record = await db["market_events"].find_one({"_id": new_market_event.inserted_id})
     return market_events_helper(record)
 
-#TODO: Fix the validacion when nan values comes to the json.
+
+# TODO: Fix the validacion when nan values comes to the json.
 async def get_online_market_event() -> List[MarketEvent]:
     analyzer = BinanceVolumeAnalyzer()
 
     try:
         await analyzer.initialize()
         await analyzer.calculate_market_spikes()
-        
+
         df_top_price_increase = analyzer.get_top_symbols(metric="price_rate")
         df_top_price_decrease = analyzer.get_top_symbols(metric="price_rate", ascending=True)
 
         df_merged = pd.concat([df_top_price_increase, df_top_price_decrease])
         return [MarketEvent(**event) for event in df_merged.to_dict(orient="records")]
-   
+
     finally:
         await analyzer.close()
 
@@ -127,19 +124,10 @@ async def list_market_events(params: PaginationParams):
     market_events_collection = db["market_events"]
 
     total = await market_events_collection.count_documents({})
-    cursor = (
-        market_events_collection.find()
-        .skip(params.skip)
-        .limit(params.limit)
-    )
+    cursor = market_events_collection.find().skip(params.skip).limit(params.limit)
     items = [market_events_helper(event) async for event in cursor]
 
-    return PaginatedResponse(
-        total=total,
-        page=params.page,
-        limit=params.limit,
-        items=items
-    )
+    return PaginatedResponse(total=total, page=params.page, limit=params.limit, items=items)
 
 
 async def compute_atr_from_df(df: pd.DataFrame, timeframe: str):
@@ -168,10 +156,7 @@ async def get_atr(symbol: str) -> AtrResults:
 
         timeframes = ["1m", "5m", "15m"]
 
-        results = await asyncio.gather(
-            *(fetch(tf) for tf in timeframes),
-            return_exceptions=True
-        )
+        results = await asyncio.gather(*(fetch(tf) for tf in timeframes), return_exceptions=True)
 
         return AtrResults(atr_results=results)
 
@@ -214,10 +199,8 @@ async def get_market_sentiment() -> MarketSentiment:
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-    
-    return MarketSentiment(
-        report=analyzer.render_report(sentiment_score)
-        )
+
+    return MarketSentiment(report=analyzer.render_report(sentiment_score))
 
 
 async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredictionResult:
@@ -225,26 +208,26 @@ async def get_xgboosr_prediction(symbol: str, time_frame: str) -> XGBoostPredict
         window=10,
         n_splits=5,
         tune_hyperparams=True,  # Set to False for faster training
-        use_optuna=True  # Set to False to use GridSearchCV instead
+        use_optuna=True,  # Set to False to use GridSearchCV instead
     )
     symbol = format_symbol_name(symbol)
 
     try:
         await predictor.initialize()
         df = await predictor.get_historical_data(symbol, timeframe=time_frame, limit=1000)
-        
+
         logger.info(f"\nData shape: {df.shape}")
         logger.info(f"Date range: {df.index.min()} to {df.index.max()}")
         logger.info("\n" + "=" * 60)
         logger.info("STARTING TRAINING PIPELINE")
         logger.info("=" * 60)
-    
+
         await predictor.train(df)
 
         logger.info("\n" + "=" * 60)
 
-        prediction =await predictor.predict_latest()
-        prediction['time_frame'] = time_frame
+        prediction = await predictor.predict_latest()
+        prediction["time_frame"] = time_frame
         return XGBoostPredictionResult(**prediction)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
@@ -258,19 +241,11 @@ async def get_market_trend_label(symbol: str, time_frame: str, candle_limit: int
     try:
         await model_label.initialize()
         df = await model_label.get_historical_data(symbol=symbol, timeframe=time_frame, limit=1000)
-        await model_label.auto_calibrate_threshold(df)#, sensitivity=1.0)
+        await model_label.auto_calibrate_threshold(df)  # , sensitivity=1.0)
         labels = await model_label.label_trends(df)
-        result = pd.merge(df, labels, on='timestamp', how='inner').tail(candle_limit)
-        return [
-            MarketTrendLabel(
-                close=row.close,
-                trend=row.trend,
-                timestamp=row.Index
-            ) for row in result.itertuples()
-        ]
+        result = pd.merge(df, labels, on="timestamp", how="inner").tail(candle_limit)
+        return [MarketTrendLabel(close=row.close, trend=row.trend, timestamp=row.Index) for row in result.itertuples()]
     except Exception as e:
         raise RuntimeError(f"Error initializing model: {e}")
     finally:
         await model_label.close()
-
-

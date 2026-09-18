@@ -6,11 +6,11 @@ import pytest
 
 from app.utils.helper import (
     AMSTL,
-    BinanceVolumeAnalyzer, 
+    BinanceVolumeAnalyzer,
     TREND_DOWN,
     TREND_SIDEWAYS,
     TREND_UP,
-    XGBoostSupportResistancePredictor, 
+    XGBoostSupportResistancePredictor,
     _numba_state_machine,
     format_message_events,
     validate_label_quality,
@@ -18,6 +18,7 @@ from app.utils.helper import (
 
 
 # Test cases for BaseAnalyzer and BinanceVolumeAnalyzer
+
 
 @pytest.fixture()
 def analyzer() -> BinanceVolumeAnalyzer:
@@ -35,15 +36,17 @@ def test_get_top_symbols_raises_when_df_empty(analyzer: BinanceVolumeAnalyzer):
 
 
 def test_get_top_symbols_raises_when_metric_invalid(analyzer: BinanceVolumeAnalyzer):
-    analyzer._df_final_values = _build_df([
-        {
-            "symbol": "BTCUSDT",
-            "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
-            "price_rate": 1.0,
-            "atr_pct": 2.0,
-            "close": 42000.0,
-        }
-    ])
+    analyzer._df_final_values = _build_df(
+        [
+            {
+                "symbol": "BTCUSDT",
+                "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
+                "price_rate": 1.0,
+                "atr_pct": 2.0,
+                "close": 42000.0,
+            }
+        ]
+    )
 
     with pytest.raises(ValueError, match="Unsupported metric 'nonexistent_metric'. Expected 'price_rate'."):
         analyzer.get_top_symbols(metric="nonexistent_metric", ascending=False, n_values=3)
@@ -63,39 +66,44 @@ def test_get_top_symbols_and_sorting(
     expected_symbols: list[str],
     threshold: int,
 ):
-    analyzer._df_final_values = _build_df([
-        {
-            "symbol": "BTCUSDT",
-            "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
-            "price_rate": 3.0,
-            "atr_pct": 2.0,
-            "close": 42000.0,
-        },
-        {
-            "symbol": "ETHUSDT",
-            "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
-            "price_rate": -4.0,
-            "atr_pct": 1.5,
-            "close": 3200.0,
-        },
-        {
-            "symbol": "SOLUSDT",
-            "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
-            "price_rate": 5.0,
-            "atr_pct": 3.0,
-            "close": 110.0,
-        },
-    ])
+    analyzer._df_final_values = _build_df(
+        [
+            {
+                "symbol": "BTCUSDT",
+                "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
+                "price_rate": 3.0,
+                "atr_pct": 2.0,
+                "close": 42000.0,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
+                "price_rate": -4.0,
+                "atr_pct": 1.5,
+                "close": 3200.0,
+            },
+            {
+                "symbol": "SOLUSDT",
+                "event_timestamp": pd.Timestamp(datetime(2024, 1, 1, 0, 0, 0)),
+                "price_rate": 5.0,
+                "atr_pct": 3.0,
+                "close": 110.0,
+            },
+        ]
+    )
 
     result = analyzer.get_top_symbols(metric=metric, ascending=ascending, n_values=n_values, threshold=threshold)
     print(result)
 
     assert result.symbol.tolist() == expected_symbols
 
+
 # Test cases for format_message_events
+
 
 def test_format_message_events_empty():
     assert format_message_events() == ""
+
 
 def test_format_message_events_no_filtering():
     # Should format all messages regardless of threshold
@@ -142,13 +150,14 @@ def test_format_message_events_invalid_values(caplog):
     # No exception raised, returns empty string for failed items
     result = format_message_events(*rows)
     assert result == ""
-    
+
     # Verify that ValueError was caught and logged
     assert len(caplog.records) > 0
     assert any("ValueError" in record.message for record in caplog.records)
 
 
 # ── AMSTL / _numba_state_machine tests ──────────────────────────────────────
+
 
 def test_amstl_state_machine_enters_uptrend_after_confirmation():
     """With confirm_bars=3, need 3 consecutive bars above threshold to enter UP."""
@@ -202,7 +211,9 @@ def test_amstl_state_machine_with_confirm_bars_1_behaves_immediately():
 
 def test_amstl_short_sideways_gap_is_merged_back_into_trend():
     labeler = AMSTL(min_trend_duration=3)
-    raw_trend = np.array([TREND_UP, TREND_UP, TREND_UP, TREND_SIDEWAYS, TREND_SIDEWAYS, TREND_UP, TREND_UP, TREND_UP], dtype=np.int8)
+    raw_trend = np.array(
+        [TREND_UP, TREND_UP, TREND_UP, TREND_SIDEWAYS, TREND_SIDEWAYS, TREND_UP, TREND_UP, TREND_UP], dtype=np.int8
+    )
 
     cleaned = labeler._apply_min_duration(raw_trend)
 
@@ -211,7 +222,9 @@ def test_amstl_short_sideways_gap_is_merged_back_into_trend():
 
 def test_amstl_short_opposite_burst_is_removed():
     labeler = AMSTL(min_trend_duration=3)
-    raw_trend = np.array([TREND_DOWN, TREND_DOWN, TREND_DOWN, TREND_UP, TREND_UP, TREND_DOWN, TREND_DOWN, TREND_DOWN], dtype=np.int8)
+    raw_trend = np.array(
+        [TREND_DOWN, TREND_DOWN, TREND_DOWN, TREND_UP, TREND_UP, TREND_DOWN, TREND_DOWN, TREND_DOWN], dtype=np.int8
+    )
 
     cleaned = labeler._apply_min_duration(raw_trend)
 
@@ -229,16 +242,17 @@ def test_amstl_short_opposite_burst_is_removed():
 
 # ── validate_label_quality tests ────────────────────────────────────────────
 
+
 def test_validate_label_quality_returns_expected_structure():
     """Basic smoke test for the diagnostic function."""
     # Create a simple trending dataset where UP labels have positive returns
     n = 50
     prices = np.cumsum(np.random.randn(n) * 0.5 + 0.1) + 100  # upward drift
     trends = np.array([TREND_UP] * 20 + [TREND_SIDEWAYS] * 10 + [TREND_DOWN] * 20, dtype=np.int8)
-    
+
     df = pd.DataFrame({"close": prices, "trend": trends})
     result = validate_label_quality(df, forward_bars=5)
-    
+
     assert "up_precision" in result
     assert "down_precision" in result
     assert "sideways_avg_abs_return" in result
@@ -257,47 +271,51 @@ def test_validate_label_quality_raises_on_missing_columns():
 
 # ── XGBoost integration test ───────────────────────────────────────────────
 
+
 # Mock exchange to avoid network calls
 class MockExchange:
     async def fetch_ohlcv(self, symbol, timeframe, limit):
         # Generate dummy OHLCV data
-        dates = pd.date_range(end=pd.Timestamp.now(), periods=limit, freq='15min')
+        dates = pd.date_range(end=pd.Timestamp.now(), periods=limit, freq="15min")
         data = []
         for d in dates:
-            data.append([
-                d.timestamp() * 1000,
-                100.0 + np.random.randn(),
-                105.0 + np.random.randn(),
-                95.0 + np.random.randn(),
-                102.0 + np.random.randn(),
-                1000.0 + np.random.randn()
-            ])
+            data.append(
+                [
+                    d.timestamp() * 1000,
+                    100.0 + np.random.randn(),
+                    105.0 + np.random.randn(),
+                    95.0 + np.random.randn(),
+                    102.0 + np.random.randn(),
+                    1000.0 + np.random.randn(),
+                ]
+            )
         return data
 
     async def close(self):
         pass
 
+
 @pytest.mark.asyncio
 async def test_xgboost_predictor_full_flow():
     # Disable hyperparam tuning for speed in verification
     predictor = XGBoostSupportResistancePredictor(tune_hyperparams=False, n_splits=3)
-    
+
     # Inject mock exchange
     predictor.exchange = MockExchange()
-    
+
     # 1. Test get_historical_data
     df = await predictor.get_historical_data("BTC/USDT", limit=500)
     assert not df.empty, "DataFrame should not be empty"
     assert "close" in df.columns, "DataFrame should have 'close' column"
     assert isinstance(df.index, pd.DatetimeIndex) or df.index.name == "timestamp", "Index should be timestamp"
-    
+
     # 2. Test train
     await predictor.train(df)
     assert predictor.model_high is not None, "Model high should be trained"
     assert predictor.model_low is not None, "Model low should be trained"
-    
+
     # 3. Test predict_latest
-    prediction = await predictor.predict_latest(lookback=50) # Use smaller lookback for small mock data
+    prediction = await predictor.predict_latest(lookback=50)  # Use smaller lookback for small mock data
     assert prediction is not None, "Prediction should not be None"
     assert "resistance" in prediction, "Prediction should contain 'resistance'"
     assert "support" in prediction, "Prediction should contain 'support'"

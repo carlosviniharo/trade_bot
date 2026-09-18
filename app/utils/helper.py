@@ -28,13 +28,14 @@ logger = AppLogger.get_logger()
 try:
     import optuna
     from optuna.samplers import TPESampler
+
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False
     logger.warning("Optuna not installed. Using GridSearchCV. Install with: pip install optuna")
 
 MIN_PRICE_CHANGE = 3
-MIN_VOLUME_CHANGE = 5000 # Notice that the volumen movements are above 100 then 5000 is a good threshold.
+MIN_VOLUME_CHANGE = 5000  # Notice that the volumen movements are above 100 then 5000 is a good threshold.
 ## The time limit should be calcuated dimanically based on the timeframe.
 ## For example, if the timeframe is 15m, the limit should be 96.
 ## If the timeframe is 1h, the limit should be 24.
@@ -83,12 +84,12 @@ class IndicatorComputer:
         median_window = calculate_correlation(self._df_transformed)
 
         if len(self._df_transformed) <= median_window:
-            self._df_transformed['atr_mean'] = 0.0
-            self._df_transformed['atr_above_mean'] = False
+            self._df_transformed["atr_mean"] = 0.0
+            self._df_transformed["atr_above_mean"] = False
             logger.info("Not enough data to compute ATR median.")
         else:
-            self._df_transformed['atr_mean'] = self._df_transformed['atr'].rolling(window=median_window).mean()
-            self._df_transformed['atr_above_mean'] = self._df_transformed['atr'] > self._df_transformed['atr_mean']
+            self._df_transformed["atr_mean"] = self._df_transformed["atr"].rolling(window=median_window).mean()
+            self._df_transformed["atr_above_mean"] = self._df_transformed["atr"] > self._df_transformed["atr_mean"]
         return self
 
     def compute_bbands(self, window: int = 20) -> Self:
@@ -112,8 +113,8 @@ class IndicatorComputer:
             msg = f"Unsupported metric '{metric}'. Expected 'price' or 'volume'."
             logger.error(msg)
             raise ValueError(msg)
-        
-        if window == 1: # The rate is the same as the ROC for window 1
+
+        if window == 1:  # The rate is the same as the ROC for window 1
             self._df_transformed[f"{metric}_rate"] = ta.ROC(metric_values, timeperiod=window)
         else:
             self._df_transformed[f"{metric}_rate{window}"] = ta.ROC(metric_values, timeperiod=window)
@@ -121,11 +122,17 @@ class IndicatorComputer:
 
     def compute_macd(self, fastperiod: int = 12, slowperiod: int = 26, signalperiod: int = 9) -> Self:
         macd, macd_signal, macd_hist = ta.MACD(self.close, fastperiod, slowperiod, signalperiod)
-        self._df_transformed["macd"], self._df_transformed["macd_signal"], self._df_transformed["macd_hist"] = macd, macd_signal, macd_hist
+        self._df_transformed["macd"], self._df_transformed["macd_signal"], self._df_transformed["macd_hist"] = (
+            macd,
+            macd_signal,
+            macd_hist,
+        )
         return self
 
     def compute_stochastic(self, window: int = 14) -> Self:
-        self._df_transformed["stochastic"] = ta.STOCH(self.high, self.low, self.close, fastk_period=window, slowk_period=window, slowd_period=window)
+        self._df_transformed["stochastic"] = ta.STOCH(
+            self.high, self.low, self.close, fastk_period=window, slowk_period=window, slowd_period=window
+        )
         return self
 
     def compute_ema(self, window: int = 20) -> Self:
@@ -134,9 +141,13 @@ class IndicatorComputer:
 
     def compute_volume_indicators(self) -> Self:
         self._df_transformed["volume_sma20"] = self._df_transformed["volume"].rolling(20).mean()
-        self._df_transformed["volume_ratio"] = self._df_transformed["volume"] / (self._df_transformed["volume_sma20"] + 1e-10)
-        self._df_transformed["volume_zscore"] = (self._df_transformed["volume"] - self._df_transformed["volume"].rolling(50).mean()) / (self._df_transformed["volume"].rolling(50).std() + 1e-10)
-        
+        self._df_transformed["volume_ratio"] = self._df_transformed["volume"] / (
+            self._df_transformed["volume_sma20"] + 1e-10
+        )
+        self._df_transformed["volume_zscore"] = (
+            self._df_transformed["volume"] - self._df_transformed["volume"].rolling(50).mean()
+        ) / (self._df_transformed["volume"].rolling(50).std() + 1e-10)
+
         return self
 
     def compute_obv(self) -> Self:
@@ -162,20 +173,19 @@ class IndicatorComputer:
                 .compute_volume_indicators()
             )
 
-
         return await self.run_in_thread(compute_all)
+
 
 class BaseAnalyzer:
     """Base class for volume analysis with technical indicators."""
-    
+
     def __init__(
-            self, 
-            exchange_id: str = "binance", 
-            ) -> None:
+        self,
+        exchange_id: str = "binance",
+    ) -> None:
         self.exchange = None
         self.exchange_id = exchange_id
         self.indicator_computer = IndicatorComputer
-
 
     async def initialize(self) -> None:
         """
@@ -183,17 +193,11 @@ class BaseAnalyzer:
         """
 
         if self.exchange_id == "binance":
-            self.exchange = ccxt_async.binance({
-                'options': {'defaultType': 'future'}
-            })
+            self.exchange = ccxt_async.binance({"options": {"defaultType": "future"}})
         elif self.exchange_id == "bybit":
-            self.exchange = ccxt_async.bybit({
-                'options': {'defaultType': 'future'}
-            })
+            self.exchange = ccxt_async.bybit({"options": {"defaultType": "future"}})
         elif self.exchange_id == "okx":
-            self.exchange = ccxt_async.okx({
-                'options': {'defaultType': 'future'}
-            })
+            self.exchange = ccxt_async.okx({"options": {"defaultType": "future"}})
         else:
             raise ValueError(f"Invalid exchange ID: {self.exchange_id}")
 
@@ -205,26 +209,26 @@ class BaseAnalyzer:
             try:
                 # Try ccxt's own close (closes session in most cases)
                 await self.exchange.close()
-                
+
                 # If ccxt left the session open, close it manually
                 session = getattr(self.exchange, "session", None)
                 if session and not session.closed:
                     await session.close()
                     logger.info("aiohttp session closed manually.")
-                    
+
             except Exception as e:
                 logger.error(f"Error during exchange close: {type(e).__name__} - {e}")
             finally:
                 self.exchange = None
-        
+
         # Clear any cached data in subclasses
-        if hasattr(self, 'clear_data'):
+        if hasattr(self, "clear_data"):
             self.clear_data()
 
-    async def get_futures_pairs(self, pair:str = 'USDT') -> List[str]:
+    async def get_futures_pairs(self, pair: str = "USDT") -> List[str]:
         """
         Fetch all future tickets pairs.
-        
+
         Raises:
             RuntimeError: If exchange is not initialized.
         """
@@ -232,30 +236,29 @@ class BaseAnalyzer:
             raise RuntimeError("Exchange not initialized. Call initialize() first.")
 
         data = await self.exchange.fetch_tickers()
-        
+
         pairs = [s for s in data.keys() if s.endswith(pair)]
-        
+
         if not pairs:
             msg = f"No {pair} pairs found."
             logger.warning(msg)
             raise RuntimeWarning(msg)
-            
+
         return pairs
 
-    async def get_historical_data(self, symbol: str, timeframe: str = '15m', limit: int = SINCE_24H_AGO_LIMIT) -> pd.DataFrame:
+    async def get_historical_data(
+        self, symbol: str, timeframe: str = "15m", limit: int = SINCE_24H_AGO_LIMIT
+    ) -> pd.DataFrame:
         """
         Fetch OHLCV data for a single timeframe — stateless.
-        
+
         Raises:
             RuntimeError: If exchange is not initialized.
         """
 
         ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-        df = pd.DataFrame(
-            ohlcv,
-            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-        )
-        df['event_timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df["event_timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         return df
 
 
@@ -267,11 +270,7 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
         self._df_final_values = pd.DataFrame()
 
     async def process_symbol(
-        self,
-        symbol: str,
-        timeframe: str = '15m',
-        limit: int = SINCE_24H_AGO_LIMIT,
-        window: int = 1
+        self, symbol: str, timeframe: str = "15m", limit: int = SINCE_24H_AGO_LIMIT, window: int = 1
     ) -> pd.DataFrame:
         """
         Process individual symbol data.
@@ -288,24 +287,20 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
             df_transformed["symbol"] = match.group(0) if match else symbol
             return df_transformed.iloc[[-1]]
 
-
         return pd.DataFrame()
 
     async def calculate_market_spikes(
-        self,
-        timeframe: str = '15m',
-        limit: int = SINCE_24H_AGO_LIMIT,
-        max_concurrency: int = 100
-        ) -> None:
+        self, timeframe: str = "15m", limit: int = SINCE_24H_AGO_LIMIT, max_concurrency: int = 100
+    ) -> None:
         """
-        Process all USDT futures pairs, calculate price and volume changes, 
+        Process all USDT futures pairs, calculate price and volume changes,
         and aggregate the latest results. Raises if no significant changes found.
         """
 
         # --- 1. Validation & Setup ---
         if not self.exchange:
             raise RuntimeError("Exchange not initialized.")
-            
+
         usdt_pairs = await self.get_futures_pairs()
 
         # --- 2. The Clean Worker ---
@@ -340,13 +335,8 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
 
         self._df_final_values = pd.concat(valid_dfs, ignore_index=True)
 
-
     def get_top_symbols(
-        self, 
-        metric: str = "price_rate", 
-        ascending: bool = False,
-        n_values: int = 3,
-        threshold: int = 3
+        self, metric: str = "price_rate", ascending: bool = False, n_values: int = 3, threshold: int = 3
     ) -> pd.DataFrame:
         """
         Return a DataFrame with the top symbols ranked by the specified metric.
@@ -366,7 +356,8 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
             raise ValueError(msg)
 
         df_sorted = (
-            self._df_final_values[['symbol', 'event_timestamp', 'price_rate', 'atr_pct', 'close']].copy()
+            self._df_final_values[["symbol", "event_timestamp", "price_rate", "atr_pct", "close"]]
+            .copy()
             .sort_values(by=metric, ascending=ascending)
             .head(n_values)
             .reset_index(drop=True)
@@ -374,17 +365,19 @@ class BinanceVolumeAnalyzer(BaseAnalyzer):
 
         result = df_sorted.loc[lambda x: abs(x[metric]) > threshold]
         return result
-    
+
     def clear_data(self):
         """Clear accumulated DataFrame data to prevent memory leaks."""
         self._df_final_values = pd.DataFrame()
 
 
 class XGBoostSupportResistancePredictor(BaseAnalyzer):
-    """XGBoostSupportResistancePredictor uses XGBoost machine learning to predict 
+    """XGBoostSupportResistancePredictor uses XGBoost machine learning to predict
     cryptocurrency support and resistance levels using technical indicators."""
 
-    def __init__(self, window: int = 10, n_splits: int = 5, tune_hyperparams: bool = True, use_optuna: bool = False, **kwargs) -> None:
+    def __init__(
+        self, window: int = 10, n_splits: int = 5, tune_hyperparams: bool = True, use_optuna: bool = False, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self.df_final = pd.DataFrame()
         self.window = window
@@ -399,17 +392,19 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         self.best_params_high = None
         self.best_params_low = None
 
-    async def get_historical_data(self, symbol: str, timeframe: str = '15m', limit: int = SINCE_24H_AGO_LIMIT) -> pd.DataFrame:
+    async def get_historical_data(
+        self, symbol: str, timeframe: str = "15m", limit: int = SINCE_24H_AGO_LIMIT
+    ) -> pd.DataFrame:
         df = await super().get_historical_data(symbol, timeframe, limit)
         if not df.empty:
             df.set_index("timestamp", inplace=True)
             return df
         return pd.DataFrame()
- 
+
     async def add_features(self, df: pd.DataFrame, fast_mode: bool = True) -> Self:
         """
         Add technical indicators to the dataframe.
-        
+
         """
         indicator_object = self.indicator_computer(df)
         await indicator_object.compute_async()
@@ -429,13 +424,13 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
 
         # Stochastic
         slowk, slowd = ta.STOCH(
-            self.df_final["high"], 
-            self.df_final["low"], 
-            self.df_final["close"], 
-            fastk_period=14, 
-            slowk_period=3, 
-            slowd_period=3
-            )
+            self.df_final["high"],
+            self.df_final["low"],
+            self.df_final["close"],
+            fastk_period=14,
+            slowk_period=3,
+            slowd_period=3,
+        )
         self.df_final["stoch_k"] = slowk
         self.df_final["stoch_d"] = slowd
 
@@ -443,60 +438,72 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         self.df_final["ema5"] = ta.EMA(self.df_final["close"], timeperiod=5)
         self.df_final["ema10"] = ta.EMA(self.df_final["close"], timeperiod=10)
         self.df_final["ema50"] = ta.EMA(self.df_final["close"], timeperiod=50)
-        
+
         self.df_final["ema5_dist"] = ((self.df_final["close"] - self.df_final["ema5"]) / self.df_final["close"]) * 100
         self.df_final["ema10_dist"] = ((self.df_final["close"] - self.df_final["ema10"]) / self.df_final["close"]) * 100
         self.df_final["ema20_dist"] = ((self.df_final["close"] - self.df_final["ema20"]) / self.df_final["close"]) * 100
         self.df_final["ema50_dist"] = ((self.df_final["close"] - self.df_final["ema50"]) / self.df_final["close"]) * 100
-        
+
         # EMA slopes
         self.df_final["ema10_slope"] = self.df_final["ema10"].pct_change(5) * 100
         self.df_final["ema20_slope"] = self.df_final["ema20"].pct_change(5) * 100
-        
+
         # EMA crossovers
-        self.df_final["ema5_10_cross"] = ((self.df_final["ema5"] - self.df_final["ema10"]) / self.df_final["close"]) * 100
-        self.df_final["ema10_20_cross"] = ((self.df_final["ema10"] - self.df_final["ema20"]) / self.df_final["close"]) * 100
-        
+        self.df_final["ema5_10_cross"] = (
+            (self.df_final["ema5"] - self.df_final["ema10"]) / self.df_final["close"]
+        ) * 100
+        self.df_final["ema10_20_cross"] = (
+            (self.df_final["ema10"] - self.df_final["ema20"]) / self.df_final["close"]
+        ) * 100
+
         # Trend strength
-        self.df_final["adx"] = ta.ADX(self.df_final["high"], self.df_final["low"], self.df_final["close"], timeperiod=14)
-        self.df_final["plus_di"] = ta.PLUS_DI(self.df_final["high"], self.df_final["low"], self.df_final["close"], timeperiod=14)
-        self.df_final["minus_di"] = ta.MINUS_DI(self.df_final["high"], self.df_final["low"], self.df_final["close"], timeperiod=14)
+        self.df_final["adx"] = ta.ADX(
+            self.df_final["high"], self.df_final["low"], self.df_final["close"], timeperiod=14
+        )
+        self.df_final["plus_di"] = ta.PLUS_DI(
+            self.df_final["high"], self.df_final["low"], self.df_final["close"], timeperiod=14
+        )
+        self.df_final["minus_di"] = ta.MINUS_DI(
+            self.df_final["high"], self.df_final["low"], self.df_final["close"], timeperiod=14
+        )
 
         # === REGIME FEATURES ===
         if not fast_mode:
             # SLOW version: More accurate but 10x slower
-            self.df_final["volatility_regime"] = self.df_final["atr_pct"].rolling(100).apply(
-                lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x) > 0 else 0.5
+            self.df_final["volatility_regime"] = (
+                self.df_final["atr_pct"]
+                .rolling(100)
+                .apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x) > 0 else 0.5)
             )
-            
-            self.df_final["volume_regime"] = self.df_final["volume_ratio"].rolling(50).apply(
-                lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x) > 0 else 0.5
+
+            self.df_final["volume_regime"] = (
+                self.df_final["volume_ratio"]
+                .rolling(50)
+                .apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x) > 0 else 0.5)
             )
         else:
             # FAST version: Approximate with percentile (100x faster)
             # This gives similar information without expensive .apply()
-            self.df_final["volatility_regime"] = self.df_final["atr_pct"].rolling(100).apply(
-                lambda x: (x.iloc[-1] - x.min()) / (x.max() - x.min() + 1e-10) if len(x) > 0 else 0.5,
-                raw=False
+            self.df_final["volatility_regime"] = (
+                self.df_final["atr_pct"]
+                .rolling(100)
+                .apply(lambda x: (x.iloc[-1] - x.min()) / (x.max() - x.min() + 1e-10) if len(x) > 0 else 0.5, raw=False)
             )
-            
-            self.df_final["volume_regime"] = self.df_final["volume_ratio"].rolling(50).apply(
-                lambda x: (x.iloc[-1] - x.min()) / (x.max() - x.min() + 1e-10) if len(x) > 0 else 0.5,
-                raw=False
+
+            self.df_final["volume_regime"] = (
+                self.df_final["volume_ratio"]
+                .rolling(50)
+                .apply(lambda x: (x.iloc[-1] - x.min()) / (x.max() - x.min() + 1e-10) if len(x) > 0 else 0.5, raw=False)
             )
-        
+
         # Price position in recent range (vectorized - fast)
-        self.df_final["price_position_50"] = (
-            self.df_final["close"] - self.df_final["low"].rolling(50).min()
-        ) / (
-            self.df_final["high"].rolling(50).max()
-            - self.df_final["low"].rolling(50).min()
-            + 1e-10
+        self.df_final["price_position_50"] = (self.df_final["close"] - self.df_final["low"].rolling(50).min()) / (
+            self.df_final["high"].rolling(50).max() - self.df_final["low"].rolling(50).min() + 1e-10
         )
         self.df_final.dropna(inplace=True)
-        
+
         return self
-    
+
     def generate_targets(self) -> Self:
         """
         Generate forward-looking S/R targets WITHOUT lookahead bias.
@@ -507,31 +514,31 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         # CRITICAL: Shift AFTER computing rolling aggregates
         df["future_high"] = df["high"].rolling(self.window, min_periods=1).max().shift(-self.window)
         df["future_low"] = df["low"].rolling(self.window, min_periods=1).min().shift(-self.window)
-        
+
         # Convert to % distance from current price (scale-invariant)
         df["target_resistance_pct"] = ((df["future_high"] - df["close"]) / df["close"]) * 100
         df["target_support_pct"] = ((df["future_low"] - df["close"]) / df["close"]) * 100
-        
+
         # Remove last N rows (no targets available)
-        df = df.iloc[:-self.window]
-        
+        df = df.iloc[: -self.window]
+
         return df.dropna()
 
     def select_features(
-        self, 
-        X_train: pd.DataFrame, 
-        X_test: pd.DataFrame, 
-        variance_threshold: float = 0.01, 
-        correlation_threshold: float = 0.85
+        self,
+        X_train: pd.DataFrame,
+        X_test: pd.DataFrame,
+        variance_threshold: float = 0.01,
+        correlation_threshold: float = 0.85,
     ) -> tuple[pd.DataFrame, pd.DataFrame, List[str]]:
         """
         Feature selection using variance threshold and correlation filtering.
         """
-        
+
         # We drop ROWS (axis=0) with NaNs to remove the "warm-up" period.
         # This allows us to calculate the true variance of the indicators.
         X_train_clean = X_train.dropna(axis=0)
-        
+
         # Safety check: If dropping rows removes everything (e.g. not enough history),
         # fallback to fillna(0) so the code doesn't crash.
         if len(X_train_clean) < 10:
@@ -541,14 +548,14 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         # 1. VARIANCE THRESHOLD
         if self.variance_selector is None:
             self.variance_selector = VarianceThreshold(threshold=variance_threshold)
-            self.variance_selector.fit(X_train_clean) # Fit on clean data
-        
+            self.variance_selector.fit(X_train_clean)  # Fit on clean data
+
         # Get the list of columns that survived the threshold
         variance_mask = self.variance_selector.get_support()
         selected_after_variance = X_train.columns[variance_mask].tolist()
-        
+
         logger.info("After variance filter: %s features", len(selected_after_variance))
-        
+
         # We manually select columns instead of using .transform()
         # This avoids dimension mismatch errors and preserves the original dataframe structure.
         X_train_var = X_train[selected_after_variance]
@@ -559,45 +566,38 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
             # Calculate correlation only on clean data to avoid noise
             # (Again, we drop warm-up rows just for this calculation)
             corr_matrix = X_train_var.dropna(axis=0).corr().abs()
-            
-            upper = corr_matrix.where(
-                np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
-            )
-            
+
+            upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+
             self.corr_features_to_drop = [
-                column for column in upper.columns 
-                if any(upper[column] > correlation_threshold)
+                column for column in upper.columns if any(upper[column] > correlation_threshold)
             ]
-            
+
             if self.corr_features_to_drop:
                 logger.info("Removing %s highly correlated features", len(self.corr_features_to_drop))
-        
+
         # Drop the correlated features
-        X_train_final = X_train_var.drop(columns=self.corr_features_to_drop, errors='ignore')
-        X_test_final = X_test_var.drop(columns=self.corr_features_to_drop, errors='ignore')
-        
+        X_train_final = X_train_var.drop(columns=self.corr_features_to_drop, errors="ignore")
+        X_test_final = X_test_var.drop(columns=self.corr_features_to_drop, errors="ignore")
+
         final_features = X_train_final.columns.tolist()
         logger.info("Final feature count: %s", len(final_features))
-        
+
         return X_train_final, X_test_final, final_features
-    
+
     def tune_hyperparameters_optuna(
-        self, 
-        X_train: pd.DataFrame, 
-        y_train: pd.Series, 
-        model_name: str = "Model", 
-        n_trials: int = 50
+        self, X_train: pd.DataFrame, y_train: pd.Series, model_name: str = "Model", n_trials: int = 50
     ) -> dict:
         """
         Use Optuna to find best hyperparameters (FASTER and BETTER than GridSearchCV).
         Uses Bayesian optimization with early stopping.
-        
+
         Args:
             X_train: Training features
             y_train: Training target
             model_name: Name for logging
             n_trials: Number of optimization trials (default 50, vs 324 for GridSearch)
-        
+
         Returns:
             dict with best parameters
         """
@@ -612,54 +612,52 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         tscv = TimeSeriesSplit(n_splits=3)
         # Generate indices once
         cv_indices = list(tscv.split(X_train))
-        
+
         # Define objective function
         def objective(trial):
             # Suggest hyperparameters
             params = {
-                'n_estimators': trial.suggest_int('n_estimators', 100, 500),
-                'max_depth': trial.suggest_int('max_depth', 3, 6),
-                'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),
-                'min_child_weight': trial.suggest_int('min_child_weight', 1, 7),
-                'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
-                'gamma': trial.suggest_float('gamma', 0.0, 0.5),
-                'reg_alpha': trial.suggest_float('reg_alpha', 0.0, 1.0),
-                'reg_lambda': trial.suggest_float('reg_lambda', 0.0, 1.0),
+                "n_estimators": trial.suggest_int("n_estimators", 100, 500),
+                "max_depth": trial.suggest_int("max_depth", 3, 6),
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
+                "min_child_weight": trial.suggest_int("min_child_weight", 1, 7),
+                "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+                "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+                "gamma": trial.suggest_float("gamma", 0.0, 0.5),
+                "reg_alpha": trial.suggest_float("reg_alpha", 0.0, 1.0),
+                "reg_lambda": trial.suggest_float("reg_lambda", 0.0, 1.0),
             }
-            
+
             scores = []
-            
+
             for train_idx, val_idx in cv_indices:
                 X_tr, X_val = X_train.iloc[train_idx], X_train.iloc[val_idx]
                 y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
-                
+
                 model = XGBRegressor(**params, random_state=42, n_jobs=1)
                 model.fit(X_tr, y_tr, verbose=False)
-                
+
                 y_pred = model.predict(X_val)
                 rmse = np.sqrt(mean_squared_error(y_val, y_pred))
                 scores.append(rmse)
-                
+
                 # Report intermediate value for pruning
                 trial.report(rmse, len(scores))
-                
+
                 # Prune unpromising trials
                 if trial.should_prune():
                     raise optuna.TrialPruned()
-            
+
             return np.mean(scores)
-        
+
         # Create study with pruning
         study = optuna.create_study(
-            direction='minimize',
-            sampler=TPESampler(seed=42),
-            pruner=optuna.pruners.MedianPruner(n_warmup_steps=5)
+            direction="minimize", sampler=TPESampler(seed=42), pruner=optuna.pruners.MedianPruner(n_warmup_steps=5)
         )
-        
+
         # Optimize
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False, n_jobs=1)
-        
+
         logger.info("Best RMSE: %.4f", study.best_value)
         logger.info("Best params: %s", study.best_params)
         logger.info(
@@ -667,7 +665,7 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
             len(study.trials),
             len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]),
         )
-        
+
         return study.best_params
 
     def tune_hyperparameters(self, X_train, y_train, model_name="Model"):
@@ -676,42 +674,42 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         Uses TimeSeriesSplit to respect temporal order.
         """
         logger.info("Tuning hyperparameters for %s using GridSearchCV...", model_name)
-        
+
         param_grid = {
-            'n_estimators': [200, 300, 500],
-            'max_depth': [3, 4, 5],
-            'learning_rate': [0.01, 0.05, 0.1],
-            'min_child_weight': [1, 3, 5],
-            'subsample': [0.8, 1.0],
-            'colsample_bytree': [0.8, 1.0]
+            "n_estimators": [200, 300, 500],
+            "max_depth": [3, 4, 5],
+            "learning_rate": [0.01, 0.05, 0.1],
+            "min_child_weight": [1, 3, 5],
+            "subsample": [0.8, 1.0],
+            "colsample_bytree": [0.8, 1.0],
         }
-        
+
         # Use time-series CV for hyperparameter tuning
         tscv = TimeSeriesSplit(n_splits=3)
-        
+
         base_model = XGBRegressor(random_state=42, n_jobs=-1)
-        
+
         grid_search = GridSearchCV(
             estimator=base_model,
             param_grid=param_grid,
             cv=tscv,
-            scoring='neg_root_mean_squared_error',
+            scoring="neg_root_mean_squared_error",
             n_jobs=-1,
-            verbose=0
+            verbose=0,
         )
-        
+
         grid_search.fit(X_train, y_train)
-        
+
         logger.info("Best params: %s", grid_search.best_params_)
         logger.info("Best CV RMSE: %.4f", -grid_search.best_score_)
-        
+
         return grid_search.best_params_
 
     async def train(self, df, refit_features_each_fold=False, xgb_callbacks=None):
         """
         Train models with proper time-series cross-validation.
         Includes feature selection and hyperparameter tuning.
-        
+
         Args:
             df: DataFrame with OHLCV data
             refit_features_each_fold: If True, recalculate feature selection per fold.
@@ -720,18 +718,34 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         # Add features and targets
         await self.add_features(df, fast_mode=True)  # Use accurate mode for training
         df = self.generate_targets()
-   
+
         # Get all possible features
-        all_feature_cols = [col for col in df.columns if col not in [
-            'event_timestamp', 'open', 'high', 'low', 'close', 'volume',
-            'future_high', 'future_low', 'target_resistance_pct', 'target_support_pct',
-            'ema5', 'ema10', 'ema20', 'ema50'  # Exclude intermediate EMAs, keep only _dist versions
-        ]]
-        
+        all_feature_cols = [
+            col
+            for col in df.columns
+            if col
+            not in [
+                "event_timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "future_high",
+                "future_low",
+                "target_resistance_pct",
+                "target_support_pct",
+                "ema5",
+                "ema10",
+                "ema20",
+                "ema50",  # Exclude intermediate EMAs, keep only _dist versions
+            ]
+        ]
+
         X = df[all_feature_cols].copy()
         y_high = df["target_resistance_pct"]
         y_low = df["target_support_pct"]
-        
+
         logger.info("Training on %s samples", len(df))
         logger.info("Initial feature count: %s", len(all_feature_cols))
         logger.info("Predicting %s-candle forward S/R levels", self.window)
@@ -739,50 +753,46 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         def _train_sync():
             # Time-series cross-validation
             tscv = TimeSeriesSplit(n_splits=self.n_splits)
-            
+
             high_scores = []
             low_scores = []
-            
+
             # Reset feature selection state
             self.variance_selector = None
             self.corr_features_to_drop = []
-            
+
             for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
                 logger.info("%s", "=" * 60)
                 logger.info("Fold %s/%s", fold + 1, self.n_splits)
                 logger.info("%s", "=" * 60)
-                
+
                 X_train_raw, X_test_raw = X.iloc[train_idx], X.iloc[test_idx]
                 y_high_train, y_high_test = y_high.iloc[train_idx], y_high.iloc[test_idx]
                 y_low_train, y_low_test = y_low.iloc[train_idx], y_low.iloc[test_idx]
-                
+
                 # Feature selection logic:
                 if refit_features_each_fold:
                     if fold > 0:
                         self.variance_selector = None
                         self.corr_features_to_drop = []
-                    
+
                     X_train, X_test, selected_features = self.select_features(
-                        X_train_raw, X_test_raw,
-                        variance_threshold=0.01,
-                        correlation_threshold=0.85
+                        X_train_raw, X_test_raw, variance_threshold=0.01, correlation_threshold=0.85
                     )
                     self.feature_cols = selected_features
-                
+
                 elif fold == 0:
                     X_train, X_test, selected_features = self.select_features(
-                        X_train_raw, X_test_raw,
-                        variance_threshold=0.01,
-                        correlation_threshold=0.85
+                        X_train_raw, X_test_raw, variance_threshold=0.01, correlation_threshold=0.85
                     )
                     self.feature_cols = selected_features
-                
+
                 else:
                     X_train = X_train_raw[self.feature_cols].fillna(0)
                     X_test = X_test_raw[self.feature_cols].fillna(0)
-                
+
                 # Hyperparameter tuning (only on first fold to save time)
-                if fold == 0 and self.tune_hyperparams:               
+                if fold == 0 and self.tune_hyperparams:
                     if self.use_optuna:
                         logger.info("HYPERPARAMETER TUNING with OPTUNA (using first fold)")
                         logger.info("%s", "=" * 60)
@@ -795,52 +805,52 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
                     else:
                         logger.info("HYPERPARAMETER TUNING with GRIDSEARCH (using first fold)")
                         logger.info("%s", "=" * 60)
-                        self.best_params_high = self.tune_hyperparameters(
-                            X_train, y_high_train, "Resistance Model"
-                        )
-                        self.best_params_low = self.tune_hyperparameters(
-                            X_train, y_low_train, "Support Model"
-                        )
+                        self.best_params_high = self.tune_hyperparameters(X_train, y_high_train, "Resistance Model")
+                        self.best_params_low = self.tune_hyperparameters(X_train, y_low_train, "Support Model")
                 elif fold == 0 and not self.tune_hyperparams:
                     # Use default good parameters
                     self.best_params_high = {
-                        'n_estimators': 300, 'max_depth': 4, 'learning_rate': 0.05,
-                        'min_child_weight': 3, 'subsample': 0.8, 'colsample_bytree': 0.8
+                        "n_estimators": 300,
+                        "max_depth": 4,
+                        "learning_rate": 0.05,
+                        "min_child_weight": 3,
+                        "subsample": 0.8,
+                        "colsample_bytree": 0.8,
                     }
                     self.best_params_low = self.best_params_high.copy()
-                
+
                 # Train models with best parameters
                 if xgb_callbacks:
-                    self.best_params_high['callbacks'] = xgb_callbacks
-                    self.best_params_low['callbacks'] = xgb_callbacks
+                    self.best_params_high["callbacks"] = xgb_callbacks
+                    self.best_params_low["callbacks"] = xgb_callbacks
 
                 xgb_high = XGBRegressor(**self.best_params_high, random_state=42)
                 xgb_low = XGBRegressor(**self.best_params_low, random_state=42)
-                
+
                 xgb_high.fit(X_train, y_high_train)
                 xgb_low.fit(X_train, y_low_train)
-                
+
                 # Evaluate
                 y_high_pred = xgb_high.predict(X_test)
                 y_low_pred = xgb_low.predict(X_test)
-                
+
                 # Baseline (predict mean)
                 baseline_high_pred = np.full_like(y_high_test, y_high_train.mean())
                 baseline_low_pred = np.full_like(y_low_test, y_low_train.mean())
-                
+
                 # Metrics
                 rmse_high = np.sqrt(mean_squared_error(y_high_test, y_high_pred))
                 rmse_low = np.sqrt(mean_squared_error(y_low_test, y_low_pred))
-                
+
                 r2_high = r2_score(y_high_test, y_high_pred)
                 r2_low = r2_score(y_low_test, y_low_pred)
-                
+
                 baseline_r2_high = r2_score(y_high_test, baseline_high_pred)
                 baseline_r2_low = r2_score(y_low_test, baseline_low_pred)
-                
+
                 high_scores.append((rmse_high, r2_high))
                 low_scores.append((rmse_low, r2_low))
-                
+
                 logger.info(
                     "Fold %s Results: Resistance RMSE=%.4f, R²=%.4f (baseline R²=%.4f)",
                     fold + 1,
@@ -855,54 +865,53 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
                     r2_low,
                     baseline_r2_low,
                 )
-                
+
                 # Feature importance (only for first fold)
                 if fold == 0:
-                    importance_high = pd.DataFrame({
-                        'feature': selected_features,
-                        'importance': xgb_high.feature_importances_
-                    }).sort_values('importance', ascending=False)
-                    
+                    importance_high = pd.DataFrame(
+                        {"feature": selected_features, "importance": xgb_high.feature_importances_}
+                    ).sort_values("importance", ascending=False)
+
                     logger.info("Top 10 Features for Resistance:\n%s", importance_high.head(10).to_string(index=False))
-            
+
             # Print average scores
             logger.info("%s", "=" * 60)
             logger.info("AVERAGE CROSS-VALIDATION RESULTS")
             logger.info("%s", "=" * 60)
-            
+
             avg_rmse_high = np.mean([s[0] for s in high_scores])
             avg_r2_high = np.mean([s[1] for s in high_scores])
             avg_rmse_low = np.mean([s[0] for s in low_scores])
             avg_r2_low = np.mean([s[1] for s in low_scores])
-            
+
             logger.info("Resistance: RMSE=%.4f, R²=%.4f", avg_rmse_high, avg_r2_high)
             logger.info("Support: RMSE=%.4f, R²=%.4f", avg_rmse_low, avg_r2_low)
-            
+
             # Train final models on ALL data with selected features
             logger.info("%s", "=" * 60)
             logger.info("TRAINING FINAL MODELS ON FULL DATASET")
             logger.info("%s", "=" * 60)
-            
+
             X_full = X[self.feature_cols].copy()
-            
+
             self.model_high = XGBRegressor(**self.best_params_high, random_state=42)
             self.model_low = XGBRegressor(**self.best_params_low, random_state=42)
-            
+
             self.model_high.fit(X_full, y_high)
             self.model_low.fit(X_full, y_low)
-            
+
             logger.info("Final models trained with %s features", len(self.feature_cols))
 
         # Run training in thread to avoid blocking asyncio loop
         await asyncio.to_thread(_train_sync)
-        
+
         return self
-    
+
     async def predict_levels(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Make predictions on new data.
         Returns absolute price levels.
-        
+
         Args:
             df: DataFrame with OHLCV data
         """
@@ -910,37 +919,37 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         df_feat = df.copy()
         # Use only the selected features
         X = df_feat[self.feature_cols].copy()
-        
+
         # Predict % distances (XGBoost prediction is fast)
         resistance_pct = self.model_high.predict(X.fillna(0))
         support_pct = self.model_low.predict(X.fillna(0))
-        
+
         # Get corresponding close prices (aligned with X after dropna)
         current_prices = df_feat["close"].values
-        
+
         # Convert back to absolute prices
         resistance_levels = current_prices * (1 + resistance_pct / 100)
         support_levels = current_prices * (1 + support_pct / 100)
-        
+
         return resistance_levels, resistance_pct, support_levels, support_pct
 
     async def predict_latest(self, lookback=200):
         """
         Predict S/R levels for the most recent candle.
         OPTIMIZED for speed in live trading.
-        
-        NOTE: This method uses `self.df_final` so you must ensure `add_features` 
+
+        NOTE: This method uses `self.df_final` so you must ensure `add_features`
         was called recently with up-to-date data.
-        
+
         Args:
             lookback: Number of historical candles to use (need enough for indicators)
-  
+
         Returns:
             dict with current price, resistance, support, and risk/reward ratio
         """
         # Keep strictly if needed for performance metrics, otherwise move to top
         start_time = time.time()
-        
+
         if self.df_final.empty:
             logger.warning("df_final is empty. Cannot predict.")
             return None
@@ -948,38 +957,38 @@ class XGBoostSupportResistancePredictor(BaseAnalyzer):
         # Take recent data for indicator calculation
         # This fetches the last `lookback` rows in an efficient, vectorized manner:
         recent_df = self.df_final.tail(lookback)
-        
+
         # Get predictions
         resistance, resistance_pct, support, support_pct = await self.predict_levels(recent_df)
-        
+
         if len(resistance) == 0:
             return None
-        
+
         # Latest values
         latest_close = recent_df["close"].iloc[-1]
         latest_resistance = resistance[-1]
         latest_support = support[-1]
         latest_resistance_pct = resistance_pct[-1]
         latest_support_pct = support_pct[-1]
-        
+
         # Calculate metrics
         risk_reward = abs(latest_resistance_pct / latest_support_pct) if latest_support_pct != 0 else 0
-        
+
         elapsed_time = time.time() - start_time
 
         smart_round = lambda x: float("{:.4g}".format(x) if abs(x) < 1 else "{:.4f}".format(x))
-        
+
         return {
             "current_price": latest_close,
             "resistance": smart_round(latest_resistance),
-            "support":smart_round(latest_support),
+            "support": smart_round(latest_support),
             "upside_pct": round(float(latest_resistance_pct), 2),
             "downside_pct": round(float(latest_support_pct), 2),
             "risk_reward_ratio": risk_reward,
             "timestamp": recent_df.index[-1],
-            "prediction_time_ms": elapsed_time * 1000  # Convert to milliseconds
+            "prediction_time_ms": elapsed_time * 1000,  # Convert to milliseconds
         }
-    
+
     def clear_data(self):
         """Clear large model data and DataFrames to prevent memory leaks."""
         self.df_final = pd.DataFrame()
@@ -997,21 +1006,15 @@ class AMSTL(BaseAnalyzer):
     Adaptive Multi-Scale Trend Labeling (Optimized)
     """
 
-    def __init__(
-            self,
-            window_sizes=[15, 30, 60],
-            threshold_std=1.0, 
-            atr_window=14,
-            **kwargs
-            ) -> None:
+    def __init__(self, window_sizes=[15, 30, 60], threshold_std=1.0, atr_window=14, **kwargs) -> None:
         super().__init__(**kwargs)
         self.window_sizes = window_sizes
         self.threshold_std = threshold_std
         self.atr_window = atr_window
-        
+
         # --- Parameterized Magic Numbers ---
         self.min_trend_duration = kwargs.get("min_trend_duration", 5)
-        self.cost_floor_pct = kwargs.get("cost_floor_pct", 0.0005) # 0.05%
+        self.cost_floor_pct = kwargs.get("cost_floor_pct", 0.0005)  # 0.05%
         self.grad_scale_window = kwargs.get("grad_scale_window", 30)
         self.atr_clip_max = kwargs.get("atr_clip_max", 5.0)
         self.confirmation_bars = kwargs.get("confirmation_bars", 3)
@@ -1020,7 +1023,9 @@ class AMSTL(BaseAnalyzer):
         self._cache_key = None
         self._cached_metrics = None
 
-    async def get_historical_data(self, symbol: str, timeframe: str = '15m', limit: int = SINCE_24H_AGO_LIMIT) -> pd.DataFrame:
+    async def get_historical_data(
+        self, symbol: str, timeframe: str = "15m", limit: int = SINCE_24H_AGO_LIMIT
+    ) -> pd.DataFrame:
         df = await super().get_historical_data(symbol, timeframe, limit)
         if not df.empty and "timestamp" in df.columns:
             df.set_index("timestamp", inplace=True)
@@ -1041,14 +1046,11 @@ class AMSTL(BaseAnalyzer):
         prices_log = np.log(close)
 
         # --- 2. Multi-scale smoothing (Vectorized) ---
-        # Concatenate rolling means to avoid loop DataFrame overhead if possible, 
+        # Concatenate rolling means to avoid loop DataFrame overhead if possible,
         # but simple loop is fine here.
         smoothed_dict = {}
         for w in self.window_sizes:
-            smoothed_dict[w] = (
-                prices_log.rolling(window=w, center=True, min_periods=max(1, w // 2))
-                .mean()
-            )
+            smoothed_dict[w] = prices_log.rolling(window=w, center=True, min_periods=max(1, w // 2)).mean()
         smoothed = pd.DataFrame(smoothed_dict, index=close.index).bfill().ffill()
 
         # --- 3. Weighted gradient ---
@@ -1057,18 +1059,16 @@ class AMSTL(BaseAnalyzer):
         grad_matrix = smoothed.diff().fillna(0)
         weights = np.array([np.sqrt(w) for w in self.window_sizes], dtype=float)
         weights /= weights.sum()
-        weighted_grad = grad_matrix.dot(weights) # Returns Series
+        weighted_grad = grad_matrix.dot(weights)  # Returns Series
 
         # --- 4. Robust ATR Computation ---
         indicator_computer = self.indicator_computer(df)
-        await indicator_computer.run_in_thread(
-            lambda: indicator_computer.compute_atr(self.atr_window)
-        )
+        await indicator_computer.run_in_thread(lambda: indicator_computer.compute_atr(self.atr_window))
         df_transformed = indicator_computer.get_df_transformed()
         atr = df_transformed["atr"].fillna(0)
 
         # Cost Floor: Logic maintained
-        cost_floor = close * self.cost_floor_pct 
+        cost_floor = close * self.cost_floor_pct
         atr_robust = atr + cost_floor
 
         # Logarithmic normalization: log(1 + ATR/Close) approx log returns volatility
@@ -1083,31 +1083,29 @@ class AMSTL(BaseAnalyzer):
         # Ratio: Noise / Signal
         atr_ratio = (atr_log_equiv / (grad_scale + 1e-9)).clip(upper=self.atr_clip_max)
 
-        atr_scaled = (
-            atr_ratio.ewm(span=10, adjust=False).mean()
-            .clip(lower=1e-6)
-            .bfill().ffill()
-        )
+        atr_scaled = atr_ratio.ewm(span=10, adjust=False).mean().clip(lower=1e-6).bfill().ffill()
 
         # Update Cache
         self._cache_key = current_key
         self._cached_metrics = (weighted_grad, atr_scaled)
-        
+
         return weighted_grad, atr_scaled
 
     async def auto_calibrate_threshold(self, df: pd.DataFrame, sensitivity: float = 2.0) -> float:
         weighted_grad, atr_scaled = await self._compute_grad_and_atr_scaled(df)
-        
+
         # Signal-to-Noise Ratio
         ratio = (weighted_grad / (atr_scaled + 1e-9)).dropna().abs()
-        
+
         median_val = np.median(ratio)
         mad = np.median(np.abs(ratio - median_val))
         robust_sigma = mad * 1.4826
-        
+
         self.threshold_std = median_val + (sensitivity * robust_sigma)
-        
-        logger.debug(f"AMSTL Calibrated -> Median: {median_val:.5f}, MAD: {mad:.5f}, Threshold: {self.threshold_std:.5f}")
+
+        logger.debug(
+            f"AMSTL Calibrated -> Median: {median_val:.5f}, MAD: {mad:.5f}, Threshold: {self.threshold_std:.5f}"
+        )
         return self.threshold_std
 
     async def label_trends(self, df: pd.DataFrame) -> pd.Series:
@@ -1116,11 +1114,11 @@ class AMSTL(BaseAnalyzer):
         weighted_grad, atr_scaled = await self._compute_grad_and_atr_scaled(df)
 
         adaptive_threshold = atr_scaled * self.threshold_std
-        
+
         # Prepare numpy arrays for Numba/Fast processing
         grad_arr = weighted_grad.values
         thresh_arr = adaptive_threshold.values
-        
+
         # 2. Run State Machine (with confirmation counter for stability)
         raw_trend = _numba_state_machine(grad_arr, thresh_arr, self.confirmation_bars)
 
@@ -1132,7 +1130,7 @@ class AMSTL(BaseAnalyzer):
     def _apply_min_duration(self, raw_trend: np.ndarray) -> np.ndarray:
         """
         Segment-based min-duration filter with smart merge-back logic.
-        
+
         - Short sideways gaps between same-direction trends are merged back
           (preserves real trend structure through brief pauses).
         - Short opposite-direction bursts are suppressed to SIDEWAYS
@@ -1161,11 +1159,7 @@ class AMSTL(BaseAnalyzer):
             prev_value = segments[idx - 1][2] if idx > 0 else None
             next_value = segments[idx + 1][2] if idx + 1 < len(segments) else None
 
-            if (
-                value == TREND_SIDEWAYS
-                and prev_value == next_value
-                and prev_value not in (None, TREND_SIDEWAYS)
-            ):
+            if value == TREND_SIDEWAYS and prev_value == next_value and prev_value not in (None, TREND_SIDEWAYS):
                 # Short sideways gap between same-direction trends → merge back
                 trends[start:end] = prev_value
             elif value != TREND_SIDEWAYS:
@@ -1174,49 +1168,50 @@ class AMSTL(BaseAnalyzer):
 
         return trends
 
+
 # --- Helper Function (JIT Compiled) ---
 # If numba is not available, remove @jit decorator
 @jit(nopython=True)
 def _numba_state_machine(grad, threshold, confirm_bars=3):
     """State machine with hysteresis and confirmation counter.
-    
+
     Requires `confirm_bars` consecutive bars confirming a state transition
     before actually changing state. This prevents single-bar noise (e.g. doji
     candles mid-trend) from killing an established trend.
     """
     n = len(grad)
     trends = np.zeros(n, dtype=np.int8)
-    
+
     # Constants
     TREND_UP = 1
     TREND_DOWN = -1
     TREND_SIDEWAYS = 0
-    
+
     current_state = TREND_SIDEWAYS
     pending_state = TREND_SIDEWAYS
     confirm_count = 0
-    
+
     for i in range(n):
         g = grad[i]
         t = threshold[i]
-        
+
         if np.isnan(g) or np.isnan(t):
             trends[i] = TREND_SIDEWAYS
             current_state = TREND_SIDEWAYS
             pending_state = TREND_SIDEWAYS
             confirm_count = 0
             continue
-            
+
         up_entry = t
         down_entry = -t
-        
+
         # Hysteresis: lower exit thresholds than entry thresholds
         up_exit = 0.4 * up_entry
         down_exit = 0.4 * down_entry
-        
+
         # Determine what state this bar suggests
         suggested_state = current_state  # Default: stay in current state
-        
+
         if current_state == TREND_SIDEWAYS:
             if g > up_entry:
                 suggested_state = TREND_UP
@@ -1228,7 +1223,7 @@ def _numba_state_machine(grad, threshold, confirm_bars=3):
         elif current_state == TREND_DOWN:
             if g > down_exit:
                 suggested_state = TREND_SIDEWAYS
-        
+
         # Confirmation counter logic
         if suggested_state != current_state:
             if suggested_state == pending_state:
@@ -1236,7 +1231,7 @@ def _numba_state_machine(grad, threshold, confirm_bars=3):
             else:
                 pending_state = suggested_state
                 confirm_count = 1
-            
+
             if confirm_count >= confirm_bars:
                 current_state = pending_state
                 confirm_count = 0
@@ -1244,11 +1239,10 @@ def _numba_state_machine(grad, threshold, confirm_bars=3):
             # Current state is confirmed — reset any pending transition
             pending_state = current_state
             confirm_count = 0
-                
-        trends[i] = current_state
-        
-    return trends
 
+        trends[i] = current_state
+
+    return trends
 
 
 def validate_label_quality(
@@ -1258,33 +1252,33 @@ def validate_label_quality(
     forward_bars: int = 10,
 ) -> dict:
     """Validate labeler quality by checking forward returns for each label class.
-    
+
     For LSTM training labels, UP labels should predominantly have positive
     forward returns, and DOWN labels should have negative forward returns.
     A good labeler achieves >60% directional accuracy.
-    
+
     Args:
         df: DataFrame with close prices and trend labels.
         trend_col: Column name for trend labels (-1, 0, 1).
         close_col: Column name for close prices.
         forward_bars: Number of bars to look ahead for return calculation.
-    
+
     Returns:
         dict with precision metrics per label class and overall quality score.
     """
     if trend_col not in df.columns or close_col not in df.columns:
         raise ValueError(f"DataFrame must contain '{trend_col}' and '{close_col}' columns.")
-    
+
     data = df[[close_col, trend_col]].copy()
     data["forward_return"] = data[close_col].pct_change(forward_bars).shift(-forward_bars)
     data = data.dropna()
-    
+
     if data.empty:
         logger.warning("Not enough data to validate label quality.")
         return {"error": "Insufficient data"}
-    
+
     results = {}
-    
+
     # UP labels: what % had positive forward returns?
     up_mask = data[trend_col] == TREND_UP
     if up_mask.sum() > 0:
@@ -1294,7 +1288,7 @@ def validate_label_quality(
     else:
         results["up_precision"] = None
         results["up_count"] = 0
-    
+
     # DOWN labels: what % had negative forward returns?
     down_mask = data[trend_col] == TREND_DOWN
     if down_mask.sum() > 0:
@@ -1304,7 +1298,7 @@ def validate_label_quality(
     else:
         results["down_precision"] = None
         results["down_count"] = 0
-    
+
     # SIDEWAYS labels: should have low absolute returns
     side_mask = data[trend_col] == TREND_SIDEWAYS
     if side_mask.sum() > 0:
@@ -1314,11 +1308,11 @@ def validate_label_quality(
     else:
         results["sideways_avg_abs_return"] = None
         results["sideways_count"] = 0
-    
+
     # Overall quality score (average of directional precisions)
     precisions = [v for k, v in results.items() if k.endswith("_precision") and v is not None]
     results["overall_quality"] = round(float(np.mean(precisions)), 4) if precisions else None
-    
+
     # Label distribution
     total = len(data)
     results["distribution"] = {
@@ -1326,18 +1320,21 @@ def validate_label_quality(
         "down_pct": round(float(down_mask.sum() / total * 100), 1),
         "sideways_pct": round(float(side_mask.sum() / total * 100), 1),
     }
-    
+
     logger.info(
         "Label Quality: UP=%.1f%% (%d), DOWN=%.1f%% (%d), SIDEWAYS=%.1f%% (%d) | "
         "UP precision=%.2f%%, DOWN precision=%.2f%%, Overall=%.2f%%",
-        results["distribution"]["up_pct"], results["up_count"],
-        results["distribution"]["down_pct"], results["down_count"],
-        results["distribution"]["sideways_pct"], results["sideways_count"],
+        results["distribution"]["up_pct"],
+        results["up_count"],
+        results["distribution"]["down_pct"],
+        results["down_count"],
+        results["distribution"]["sideways_pct"],
+        results["sideways_count"],
         (results["up_precision"] or 0) * 100,
         (results["down_precision"] or 0) * 100,
         (results["overall_quality"] or 0) * 100,
     )
-    
+
     return results
 
 
@@ -1349,12 +1346,7 @@ class MarketSentimentAnalyzer:
 
     _COINGECKO_API_URL = "https://api.coingecko.com/api/v3/coins/markets"
     _STABLECOINS = {"usdt", "usdc", "busd", "dai", "tusd", "usdp"}
-    _DEFAULT_PARAMS = {
-        "vs_currency": "usd",
-        "order": "market_cap_desc",
-        "per_page": 250,
-        "page": 1
-    }
+    _DEFAULT_PARAMS = {"vs_currency": "usd", "order": "market_cap_desc", "per_page": 250, "page": 1}
 
     def __init__(self, now_provider: Callable[[], datetime] = datetime.now) -> None:
         self._now = now_provider
@@ -1392,7 +1384,7 @@ class MarketSentimentAnalyzer:
 
     def render_report(self, sentiment_score: Optional[float]) -> str:
         """Render sentiment report as formatted string."""
-        timestamp = self._now().isoformat(sep=' ', timespec='seconds')
+        timestamp = self._now().isoformat(sep=" ", timespec="seconds")
         report = "\n--- Market Sentiment Report ---"
         report += f"\nTimestamp: {timestamp}"
 
@@ -1408,12 +1400,8 @@ class MarketSentimentAnalyzer:
 
 class PaginationParams:
     """Pagination parameters for API endpoints."""
-    
-    def __init__(
-            self,
-            page: int = Query(1, ge=1),
-            limit: int = Query(10, ge=1, le=100)
-    ) -> None:
+
+    def __init__(self, page: int = Query(1, ge=1), limit: int = Query(10, ge=1, le=100)) -> None:
         self.page = page
         self.limit = limit
 
@@ -1422,11 +1410,13 @@ class PaginationParams:
         """Calculate skip value for pagination."""
         return (self.page - 1) * self.limit
 
+
 ###############################################################################
 # Utility functions for miscellaneous or supporting tasks unrelated to the core
 # business logic. These may include helpers for formatting, validation, or
 # other general-purpose operations used throughout the codebase.
 ###############################################################################
+
 
 def format_message_events(*args: Dict[str, Any]) -> str:
     """
@@ -1441,7 +1431,7 @@ def format_message_events(*args: Dict[str, Any]) -> str:
     Returns:
         str: A formatted string containing all messages that meet the
              filtering criteria.
-    """ 
+    """
     messages = []
 
     for raw in args:
@@ -1459,24 +1449,23 @@ def format_message_events(*args: Dict[str, Any]) -> str:
         except ValueError as e:
             logger.error(f"[ERROR] ValueError: {e}")
 
-
     return "\n".join(messages)
 
 
 def format_symbol_name(symbol: str) -> str:
     """Format symbol name for trading."""
     if re.match(r"^[^/\s\d]*", symbol, re.IGNORECASE):
-        return f'{symbol.upper()}/USDT:USDT'
-    return ''
+        return f"{symbol.upper()}/USDT:USDT"
+    return ""
 
 
 def calculate_correlation(
-    df: pd.DataFrame, 
-    measure_column: str = "atr", 
-    nlags: int = 200, 
+    df: pd.DataFrame,
+    measure_column: str = "atr",
+    nlags: int = 200,
     threshold: float = 0.1,
     min_window: int = 5,
-    default_window: int = 50
+    default_window: int = 50,
 ) -> int:
     """
     Calculate the optimal window size for ATR averaging based on autocorrelation.
@@ -1493,10 +1482,7 @@ def calculate_correlation(
         int: Suggested window size based on autocorrelation analysis.
     """
     if measure_column not in df.columns:
-        msg = (
-            f"Column '{measure_column}' not found in DataFrame. "
-            f"Available columns: {list(df.columns)}"
-        )
+        msg = f"Column '{measure_column}' not found in DataFrame. Available columns: {list(df.columns)}"
         logger.error(msg)
         raise ValueError(msg)
 
@@ -1513,13 +1499,8 @@ def calculate_correlation(
     # Skip lag 0 (always 1.0), start from lag 1
     for lag, val in enumerate(acf_vals[1:], start=1):
         if abs(val) < threshold:
-            logger.info(
-                f"Suggested window: {lag} (autocorrelation dropped below {threshold})"
-            )
+            logger.info(f"Suggested window: {lag} (autocorrelation dropped below {threshold})")
             return max(lag, min_window)
 
-    logger.info(
-        f"No lag found with autocorrelation below {threshold}. "
-        f"Returning default_window={default_window}."
-    )
+    logger.info(f"No lag found with autocorrelation below {threshold}. Returning default_window={default_window}.")
     return default_window

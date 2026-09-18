@@ -7,6 +7,7 @@ from app.core.logging import AppLogger
 # Initialize logging
 logger = AppLogger.get_logger()
 
+
 class WhatsAppOutput:
     """Output channel for WhatsApp Cloud API.
 
@@ -42,18 +43,8 @@ class WhatsAppOutput:
         Returns:
             None
         """
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "messaging_product": "whatsapp",
-            "to": recipient_id,
-            "type": "text",
-            "text": {
-                "body": message
-            }
-        }
+        headers = {"Authorization": f"Bearer {self.access_token}", "Content-Type": "application/json"}
+        data = {"messaging_product": "whatsapp", "to": recipient_id, "type": "text", "text": {"body": message}}
         try:
             response = await self.client.post(self.api_url, headers=headers, json=data)
             response.raise_for_status()
@@ -87,10 +78,7 @@ class WhatsAppOutput:
         Returns:
             None
         """
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {self.access_token}", "Content-Type": "application/json"}
 
         json_message.setdefault("messaging_product", "whatsapp")
         json_message.setdefault("recipient_type", "individual")
@@ -105,8 +93,9 @@ class WhatsAppOutput:
 
     async def close(self) -> None:
         """Closes the underlying HTTP client to prevent memory leaks."""
-        if hasattr(self, 'client') and self.client:
+        if hasattr(self, "client") and self.client:
             await self.client.aclose()
+
 
 # TODO: Implement the WhatsAppInput class for incoming messages from the Whatsapp Cloud API
 
