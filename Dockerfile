@@ -42,8 +42,9 @@ FROM python:3.12-slim
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /usr/lib/libta_lib.so* /usr/lib/
 
-# Add virtual environment to PATH
-ENV PATH="/opt/venv/bin:$PATH"
+# Add virtual environment to PATH and unbuffer Python stdout/stderr
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
 
 # Set the working directory
 WORKDIR /app

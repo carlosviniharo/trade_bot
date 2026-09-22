@@ -10,7 +10,7 @@ class Database:
     @classmethod
     async def connect(cls):
         try:
-            cls.client = AsyncIOMotorClient(settings.MONGODB_URI)
+            cls.client = AsyncIOMotorClient(settings.MONGODB_URI, serverSelectionTimeoutMS=5000)
             cls.db = cls.client[settings.MONGODB_NAME]
             # Ping the server to confirm connectivity (SRV DNS resolved here)
             await cls.client.admin.command("ping")

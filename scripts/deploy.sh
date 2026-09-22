@@ -57,13 +57,13 @@ docker image prune -f
 # ------------------------------------------------------------------------------
 echo "==> [5/5] Verifying service responsiveness..."
 SUCCESS=0
-for i in {1..12}; do
+for i in {1..20}; do
     if curl -sf http://127.0.0.1:8000/docs > /dev/null 2>&1 || curl -sf http://127.0.0.1/docs > /dev/null 2>&1; then
         echo "✅ Trade Bot container is up, healthy, and serving traffic!"
         SUCCESS=1
         break
     fi
-    echo "    Waiting for services to become responsive (attempt $i/12)..."
+    echo "    Waiting for services to become responsive (attempt $i/20)..."
     sleep 3
 done
 
