@@ -111,7 +111,7 @@ async def get_online_market_event() -> list[MarketEvent]:
         df_top_price_decrease = analyzer.get_top_symbols(metric="price_rate", ascending=True)
 
         df_merged = pd.concat([df_top_price_increase, df_top_price_decrease])
-        return [MarketEvent(**event) for event in df_merged.to_dict(orient="records")]
+        return [MarketEvent.model_validate(event) for event in df_merged.to_dict(orient="records")]
 
     finally:
         await analyzer.close()
