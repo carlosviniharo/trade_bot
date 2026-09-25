@@ -47,9 +47,10 @@ export REGISTRY_USERNAME="${REGISTRY_USERNAME:-carlosviniharo}"
 export IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 docker compose pull
-docker compose up -d --remove-orphans
+docker compose up -d --force-recreate --remove-orphans
 
-# Clean up dangling images to keep droplet disk lean
+# Clean up old containers and dangling images to keep droplet disk lean
+docker container prune -f
 docker image prune -f
 
 # ------------------------------------------------------------------------------
